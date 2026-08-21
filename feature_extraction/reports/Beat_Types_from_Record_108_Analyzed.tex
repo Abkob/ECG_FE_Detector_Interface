@@ -1,0 +1,265 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.78in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,citecolor=blue!55!black,urlcolor=blue!55!black]{hyperref}
+
+\definecolor{navy}{HTML}{163A5F}
+\definecolor{pale}{HTML}{EEF4F9}
+\definecolor{warning}{HTML}{FFF3CD}
+\definecolor{rulegray}{HTML}{B8C2CC}
+
+\newcommand{\figdir}{Beat_Types_from_Record_108_Analyzed_figures}
+\newcommand{\good}{\textbf{Yes}}
+\newcommand{\notproduced}{\textbf{Not produced}}
+\newcommand{\auditbox}[1]{%
+  \par\smallskip
+  \noindent\fcolorbox{navy}{pale}{\parbox{0.955\linewidth}{\textbf{Detector audit.} #1}}
+  \par\smallskip
+}
+\newcommand{\cautionbox}[1]{%
+  \par\smallskip
+  \noindent\fcolorbox{rulegray}{warning}{\parbox{0.955\linewidth}{\textbf{Critical limitation.} #1}}
+  \par\smallskip
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Record 108 beat-type audit}
+\rhead{RR--HRV cascade}
+\cfoot{\thepage}
+\setlength{\headheight}{14pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlist[itemize]{leftmargin=1.2em,itemsep=2pt,topsep=3pt}
+\captionsetup{font=small,labelfont=bf}
+
+\title{\textbf{Beat Types from Record 108: Analyzed}\\[0.4em]
+\large Expert annotations, QRS-detection results, and published morphology references}
+\author{ECG-only seizure detector project}
+\date{4 August 2026}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\fcolorbox{navy}{pale}{\parbox{0.91\textwidth}{
+\textbf{The central distinction.} The symbols \texttt{N}, \texttt{A}, \texttt{V}, \texttt{F}, and \texttt{j} in this report are expert WFDB annotations from the MIT--BIH Arrhythmia Database. The current RR--HRV branch detects QRS/R events and measures detector support. It does \emph{not} predict any of these beat-type labels. Therefore ``QRS detected'' must not be rewritten as ``beat type classified correctly.''
+}}
+\end{center}
+
+\section{Dataset and interpretation rules}
+
+The MIT--BIH Arrhythmia Database contains 48 two-lead ambulatory recordings with expert-reviewed beat annotations \cite{goldberger2000physiobank,moody2001mitbih,physionetmitdb}. Record 108 was sampled at 360~Hz and contains MLII and V1. The plots in this document use the upper MLII signal. The record header describes an 87-year-old woman; the official record notes report borderline first-degree AV block, sinus arrhythmia, multiform premature ventricular complexes, and substantial noise and baseline shift in the lower V1 channel \cite{physionetmitdb}.
+
+The five requested annotation counts in the local \texttt{108.atr} file are:
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Symbol & \texttt{N} & \texttt{A} & \texttt{V} & \texttt{F} & \texttt{j} \\
+\midrule
+Count in record 108 & 1,739 & 4 & 17 & 2 & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{What the two images mean}
+
+For every beat type, the left panel is a raw MLII window from record 108. Its markers are:
+\begin{itemize}
+\item hollow circle: expert WFDB reference annotation;
+\item teal triangle: initial UNSW/Khamis QRS event;
+\item orange cross: refined fiducial from the selected original-polarity path;
+\item purple diamond: refined fiducial from the inverted-polarity context path.
+\end{itemize}
+
+The right panel is an excerpt from Elgendi et al. \cite{elgendi2015twave}. That paper uses MIT--BIH waveforms to illustrate normal, irregular, and unusual beats. In its figures, the plus sign denotes a P-wave annotation, the asterisk denotes a T-wave annotation, and a circled asterisk denotes merged P/T activity. Those markers are \emph{not} our detector outputs and the paper is \emph{not} a beat-classification validation study.
+
+\cautionbox{A beat label does not define one universal drawing. QRS sign, amplitude, and apparent shape depend on lead direction, patient anatomy, conduction, neighboring waves, filtering, and noise. A normal beat can therefore be predominantly negative in one lead, while a published normal example is upright. ECG standards also distinguish a global 12-lead QRS duration from a duration measured in one lead \cite{kligfield2007standardization,surawicz2009conduction}.}
+
+\section{Latest detector result for the five selected examples}
+
+The current architecture uses the Khamis/UNSW detector as the primary QRS-event candidate and a NeuroKit gradient detector as secondary context \cite{khamis2016telehealth,makowski2021neurokit,kristof2024qrs}. The original orientation is the selected output; the inverted orientation is computed as context only. Errors below are relative to the expert annotation, and ``detected'' means the selected refined timestamp is within the predefined $\pm 75$~ms audit tolerance.
+
+\begin{table}[H]
+\centering
+\caption{QRS detection is reported separately from beat-type classification.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrlrrll}
+\toprule
+Expert & Sample & Time (s) & Initial error & Refined error & Original support & Inverted error & Inverted support & QRS detected? & Beat class output \\
+\midrule
+\texttt{N} & 36,115  & 100.319  & $+2.8$ ms  & $-47.2$ ms & No  & $-2.8$ ms  & Yes & Yes & Not produced \\
+\texttt{A} & 263,192 & 731.089  & $+8.3$ ms  & $+2.8$ ms  & Yes & $+36.1$ ms & Yes & Yes & Not produced \\
+\texttt{V} & 4,105   & 11.403   & $0.0$ ms   & $-5.6$ ms  & Yes & $+33.3$ ms & Yes & Yes & Not produced \\
+\texttt{F} & 180,621 & 501.725  & $-5.6$ ms  & $-33.3$ ms & Yes & $0.0$ ms   & Yes & Yes & Not produced \\
+\texttt{j} & 435,657 & 1210.158 & $+13.9$ ms & $+2.8$ ms  & Yes & $+36.1$ ms & Yes & Yes & Not produced \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+All five selected QRS events were located within $\pm 75$~ms, but this is only a five-example timing check. It is not label-wise sensitivity. Label-wise performance requires one-to-one evaluation of every annotated occurrence; this is particularly important for \texttt{F} ($n=2$) and \texttt{j} ($n=1$), whose denominators are too small for stable performance claims.
+
+\clearpage
+\section{\texttt{N}: normal beat}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.64\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/record108_N.png}
+\\[-2pt]\small\textbf{Record 108:} expert \texttt{N}, sample 36,115 (100.319~s).
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/literature_N.png}
+\\[-2pt]\small\textbf{Published reference:}\\ Elgendi et al., Figure 1, record 100 \cite{elgendi2015twave}.
+\end{minipage}
+\caption{A record-108 expert normal beat beside a published normal-beat window.}
+\end{figure}
+
+\textbf{Why a general normal waveform has P--QRS--T structure.} A sinus impulse first depolarizes the atria, producing the P wave. After atrioventricular delay, rapid propagation through the His--Purkinje system activates the ventricles, producing a comparatively brief QRS complex. Ventricular repolarization then produces the T wave \cite{kligfield2007standardization,surawicz2009conduction}. ``Normal'' here refers to the database's expert beat label, not to a requirement that the largest QRS deflection point upward.
+
+\textbf{Why record 108 looks different from the published example.} The selected record-108 MLII beat has a deep negative dominant QRS, whereas record 100 in the literature panel is upright. An ECG lead records the projection of the heart's electrical vector onto that lead. If the dominant vector points away from the lead's positive electrode, the deflection is negative. This polarity difference does not by itself turn a normal beat into artifact or an ectopic beat.
+
+\auditbox{UNSW placed the initial event only $+2.8$~ms from the expert annotation. The original-polarity highest-amplitude refinement moved to $-47.2$~ms and lost secondary support because it searched for a positive maximum around a predominantly negative QRS. The inverted-context refinement landed at $-2.8$~ms with support. This case demonstrates a polarity-sensitive fiducial problem, not failed QRS-event detection.}
+
+\cautionbox{One negative normal beat does not justify automatic beat-by-beat polarity switching. In the \texttt{A}, \texttt{V}, and \texttt{j} examples below, the original refined timestamp is closer than the inverted refined timestamp. A routing rule must therefore be separately specified and validated before inversion can control RR output.}
+
+\clearpage
+\section{\texttt{A}: atrial premature beat}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.64\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/record108_A.png}
+\\[-2pt]\small\textbf{Record 108:} expert \texttt{A}, sample 263,192 (731.089~s).
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/literature_A.png}
+\\[-2pt]\small\textbf{Published reference:}\\ Elgendi et al., Figure 2(b), record 100 \cite{elgendi2015twave}.
+\end{minipage}
+\caption{A record-108 atrial premature beat beside a published premature-atrial-beat window.}
+\end{figure}
+
+\textbf{Why it occurs early.} A premature atrial beat begins from an atrial focus outside the sinus node and arrives before the next expected sinus beat. Its P wave can therefore occur early, differ from the patient's sinus P-wave morphology, or overlap the preceding T wave. Current reviews emphasize that premature atrial activity is supraventricular and that its burden has prognostic associations, but they do not imply one universal single-lead shape \cite{guichard2022pac}.
+
+\textbf{Why its QRS often resembles a normal QRS.} After the early atrial impulse reaches the AV node, ventricular activation can still travel through the normal His--Purkinje system. The resulting QRS is commonly narrow and similar to neighboring conducted beats. However, if part of the conduction system remains refractory, aberrant conduction can widen or alter the QRS. Therefore a narrow QRS supports a supraventricular mechanism but is not an infallible class label.
+
+\textbf{What is visible here.} The record-108 example contains a prominent positive QRS at the expert timestamp. The literature panel's row is identified as premature atrial beats, while its plus/asterisk markers identify P/T activity rather than the expert R fiducial. The image should be read in its temporal context, not as a template that every \texttt{A} beat must match.
+
+\auditbox{The initial event was $+8.3$~ms from the annotation and the selected original refinement was $+2.8$~ms, with secondary support. The inverted refinement was later at $+36.1$~ms. The QRS was detected, but the branch did not predict \texttt{A}.}
+
+\clearpage
+\section{\texttt{V}: premature ventricular beat}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.64\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/record108_V.png}
+\\[-2pt]\small\textbf{Record 108:} expert \texttt{V}, sample 4,105 (11.403~s).
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/literature_V.png}
+\\[-2pt]\small\textbf{Published reference:}\\ Elgendi et al., Figure 2(a), record 102 \cite{elgendi2015twave}.
+\end{minipage}
+\caption{A record-108 premature ventricular beat beside a published ventricular-beat example.}
+\end{figure}
+
+\textbf{Why the QRS is often wide and unusual.} A premature ventricular complex begins in ventricular tissue rather than arriving through the atria and AV node in the usual sequence. Much of the activation then spreads through ventricular myocardium instead of simultaneously engaging both ventricles through the fast His--Purkinje network. This slower, asymmetric propagation commonly creates a prolonged, high-amplitude, or otherwise unusual QRS \cite{prisco2023pvc,surawicz2009conduction}.
+
+\textbf{Why the T wave may point the other way.} Abnormal ventricular activation also changes the order of repolarization. Secondary ST--T changes are therefore often discordant with the dominant QRS direction. A preceding normal sinus P wave may be absent, unrelated, or obscured. Neither width nor discordance is perfectly specific: supraventricular beats with bundle-branch aberrancy can also be wide.
+
+\textbf{What is visible here.} The published record-102 example has a conspicuous broad negative ventricular complex. The record-108 MLII example has its own morphology because lead and origin differ. The expert \texttt{V} annotation establishes the reference category; visual resemblance alone is not the ground truth.
+
+\auditbox{UNSW's initial event was exactly at the expert sample and original refinement was $-5.6$~ms, with support. The inverted refinement moved to $+33.3$~ms. The QRS was detected; no \texttt{V} probability or class was produced.}
+
+\clearpage
+\section{\texttt{F}: fusion of ventricular and normal activation}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.64\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/record108_F.png}
+\\[-2pt]\small\textbf{Record 108:} expert \texttt{F}, sample 180,621 (501.725~s).
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/literature_F.png}
+\\[-2pt]\small\textbf{Published reference:}\\ Elgendi et al., Figure 3(d), record 208 \cite{elgendi2015twave}.
+\end{minipage}
+\caption{A record-108 ventricular/normal fusion beat beside a published fusion-beat window.}
+\end{figure}
+
+\textbf{Why the waveform is a mixture.} A fusion beat occurs when a supraventricular conducted wavefront and a ventricular ectopic wavefront activate the ventricles at nearly the same time. Different portions of the ventricular myocardium are therefore captured by the two activation routes. Reviews of wide-complex tachycardia describe fusion beats as having morphology intermediate between a fully conducted beat and a ventricular beat \cite{whitaker2023vt}.
+
+\textbf{Why there is no single fusion shape.} The final QRS depends on the relative timing of the two impulses, the ventricular ectopic origin, the normal conduction pathway, and the lead. Small timing changes alter how much each wavefront contributes. Consequently, fusion can change width, notching, polarity, and amplitude. It cannot be reliably defined as a fixed weighted average of two stored templates.
+
+\textbf{What is visible here.} The published record-208 row is explicitly identified as fusion of ventricular and normal activation. Its waveform lies among neighboring differently shaped complexes. Record 108's expert \texttt{F} example is predominantly negative in MLII. The label is established by expert temporal and morphological context, not by the fact that one isolated waveform ``looks halfway.''
+
+\auditbox{The initial event was $-5.6$~ms from the annotation. Original positive-maximum refinement moved to $-33.3$~ms, whereas inverted-context refinement landed exactly at the expert sample; both paths had secondary support. The current selected output remains the original path, and no \texttt{F} class was predicted.}
+
+\cautionbox{Record 108 contains only two \texttt{F} annotations. Even perfect detection of these two examples would have an extremely uncertain sensitivity estimate and would not validate fusion-beat classification.}
+
+\clearpage
+\section{\texttt{j}: nodal (junctional) escape beat}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.64\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/record108_j.png}
+\\[-2pt]\small\textbf{Record 108:} expert \texttt{j}, sample 435,657 (1210.158~s).
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/literature_j.png}
+\\[-2pt]\small\textbf{Published reference:}\\ Elgendi et al., Figure 3(c), record 222 \cite{elgendi2015twave}.
+\end{minipage}
+\caption{A record-108 nodal escape beat beside a published nodal-escape-beat window.}
+\end{figure}
+
+\textbf{Why it is an escape rather than a premature beat.} An escape beat is delayed: a subsidiary pacemaker fires because the expected dominant pacemaker impulse did not activate the ventricles in time. The lowercase WFDB symbol \texttt{j} means nodal/junctional \emph{escape}; uppercase \texttt{J} means nodal/junctional \emph{premature}. Timing relative to neighboring beats is therefore essential to the distinction \cite{physionetmitdb,samesima2022ecg}.
+
+\textbf{Why the QRS can look normal or nearly normal.} A junctional focus is close enough to the His--Purkinje system that ventricular activation often follows the usual rapid pathways. The QRS is consequently commonly narrow and similar, though not necessarily identical, to a sinus-conducted QRS. Pre-existing bundle-branch disease can make it wide. A normal preceding P wave may be absent; retrograde atrial activation can create an inverted P wave before, within, or after the QRS \cite{samesima2022ecg}.
+
+\textbf{What is visible here.} The record-108 event is a sharp positive complex that could resemble a normally conducted beat when viewed without its preceding pause and atrial context. The literature row is identified as nodal escape, but its P/T markers are not a junctional-beat classifier. This is exactly why an isolated QRS image is insufficient to distinguish \texttt{j} from \texttt{N}.
+
+\auditbox{The initial event was $+13.9$~ms from the expert annotation and original refinement was $+2.8$~ms, with support. The inverted refinement moved to $+36.1$~ms. The QRS was detected, but the architecture did not predict \texttt{j}.}
+
+\cautionbox{There is only one expert \texttt{j} in record 108. This example is useful as a case study but cannot estimate junctional-escape sensitivity, positive predictive value, or generalization.}
+
+\clearpage
+\section{Conclusions for the RR--HRV branch}
+
+\begin{enumerate}
+\item The RR--HRV branch needs a reliable timestamp for ventricular activation. It does not need to claim that it has classified \texttt{N}, \texttt{A}, \texttt{V}, \texttt{F}, or \texttt{j} unless a separate beat-classification model is explicitly designed and validated.
+\item All five selected examples were detected within $\pm 75$~ms, but their polarity behavior differed. Inversion helped the \texttt{N} and \texttt{F} fiducials, while the original path was closer for \texttt{A}, \texttt{V}, and \texttt{j}. This rejects the assumption that inversion is uniformly better.
+\item Detector support is not ground truth. The expert annotation remains the evaluation reference, and agreement between two algorithms is only a reliability measurement.
+\item The paper panels teach expected mechanisms and morphological tendencies; they are not universal templates. Timing, neighboring beats, P-wave behavior, and lead context remain necessary.
+\item The next formal validation should evaluate all annotations using one-to-one matching and report sensitivity and positive predictive value by symbol, with uncertainty intervals. Rare symbols must not be summarized by percentages without their raw denominators.
+\end{enumerate}
+
+\bibliographystyle{plainnat}
+\bibliography{Beat_Types_from_Record_108_Analyzed}
+
+\end{document}

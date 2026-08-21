@@ -1,0 +1,86 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+public/
+.vercel/
+.mypy_cache/
+.ruff_cache/
+
+# Local secrets and deployment credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Raw ECG corpora are local-only. Keep only the small public record used by
+# the prepared Vercel demonstration; no other patient/dataset files are tracked.
+/Datasets/*
+!/Datasets/mit-bih-arrhythmia-database-1.0/
+/Datasets/mit-bih-arrhythmia-database-1.0/*
+!/Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/
+/Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/*
+!/Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/100.hea
+!/Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/100.dat
+
+# Historical/reference collections and reproducible generated products
+/archive/
+/source_materials/
+/output/
+/feature_extraction/output/
+/feature_extraction/outputs/
+/feature_extraction/tmp/
+/feature_extraction/.codex_pdf_preview_context/
+
+# Generated report renders; keep their editable sources and build scripts
+/feature_extraction/reports/**/*.pdf
+/feature_extraction/reports/**/*.png
+/feature_extraction/reports/**/*.pptx
+
+# Jupyter
+.ipynb_checkpoints/
+
+# LaTeX build sidecars
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xdv
+*.lof
+*.lot
+
+# Rendered documentation is reproducible from the tracked sources
+*.pdf
+*.png
+*.pptx
+*.inspect.ndjson
+/feature_extraction/reports/**/outputs/
+
+# Temporary build and QA workspaces
+tmp/
+temp/
+build/
+dist/
+_build/
+output/qa/renders/
+
+# Office locks and shortcuts
+~$*
+*.lnk
+
+# Notebook demonstration products are reproducible
+output/notebook_runs/
+
+.vercel

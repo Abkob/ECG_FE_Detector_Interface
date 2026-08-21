@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Clinician-facing slow-motion demonstration of ECG morphology, RR/HRV, signal-quality and conduction feature extraction.">
+  <title>ECG Cascade Studio</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="one-screen">
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Signal and analysis controls">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path d="M5 25h8l4-10 7 22 5-15 4 7h10"/></svg>
+        </div>
+        <div>
+          <div class="brand-name">ECG Cascade</div>
+          <div class="brand-subtitle">Feature studio</div>
+        </div>
+      </div>
+
+      <section class="control-section source-section">
+        <div class="section-kicker">01 · Signal</div>
+        <h2>Choose an ECG</h2>
+        <p class="section-copy">Start with the prepared example or bring a signal from your study.</p>
+        <div class="button-stack">
+          <button class="button button-primary" id="demoButton">
+            <span class="button-icon" aria-hidden="true">✦</span>
+            Use prepared example
+          </button>
+          <button class="button button-secondary" id="uploadButton">
+            <span class="button-icon" aria-hidden="true">↑</span>
+            Upload ECG files
+          </button>
+          <input id="fileInput" type="file" multiple accept=".edf,.hea,.dat,.atr,.csv,.txt" hidden>
+        </div>
+        <div class="format-note" id="uploadAvailabilityNote">Checking upload availability…</div>
+
+        <div class="source-card is-empty" id="sourceCard">
+          <div class="source-kind" id="sourceKind">WAITING FOR SIGNAL</div>
+          <div class="source-name" id="sourceName">No ECG loaded</div>
+          <div class="source-meta" id="sourceMeta">Choose an input above</div>
+        </div>
+      </section>
+
+      <section class="control-section">
+        <div class="section-kicker">02 · Segment</div>
+        <div class="field">
+          <label for="channelSelect">ECG channel</label>
+          <select id="channelSelect" disabled><option>Load a signal first</option></select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="startInput">Start</label>
+            <div class="input-unit"><input id="startInput" type="number" min="0" step="1" value="0" disabled><span>s</span></div>
+          </div>
+          <div class="field">
+            <label for="durationInput">Duration</label>
+            <div class="input-unit"><input id="durationInput" type="number" min="3" max="300" step="1" value="120" disabled><span>s</span></div>
+          </div>
+        </div>
+        <div class="field" id="samplingRateField" hidden>
+          <label for="samplingRateInput">CSV sampling rate</label>
+          <div class="input-unit"><input id="samplingRateInput" type="number" min="1" max="100000" step="0.01" value="360"><span>Hz</span></div>
+        </div>
+        <button class="text-button" id="previewButton" disabled>Refresh signal preview <span aria-hidden="true">→</span></button>
+      </section>
+
+      <section class="control-section">
+        <div class="section-kicker">03 · Run</div>
+        <label class="group-label">R-peak timestamp track</label>
+        <div class="segmented-control" role="radiogroup" aria-label="R-peak timestamp track">
+          <label><input type="radio" name="track" value="neurokit" checked><span>NeuroKit</span></label>
+          <label><input type="radio" name="track" value="zhai"><span>Zhai 2023</span></label>
+        </div>
+        <p class="microcopy">A display choice only. Neither detector is declared the clinical timestamp owner.</p>
+        <div class="field calibration-field">
+          <label for="calibrationBeatsInput">Patient/lead calibration <strong class="calibration-minimum" id="calibrationRule">minimum 5</strong></label>
+          <div class="input-unit"><input id="calibrationBeatsInput" type="number" min="5" max="100" step="1" value="20" aria-describedby="calibrationHelp"><span>beats</span></div>
+        </div>
+        <p class="microcopy" id="calibrationHelp">Varon stacks five QRS complexes, so fewer than five cannot produce λ1–λ5. The first eligible beats define a patient/lead crop, which is then frozen.</p>
+        <button class="button button-run" id="analyzeButton" disabled>
+          <span class="run-dot" aria-hidden="true"></span>
+          Run every feature branch
+        </button>
+      </section>
+
+      <div class="sidebar-note">
+        <div class="note-icon" aria-hidden="true">i</div>
+        <div><strong>Research demonstration</strong><br>This app extracts measurements. It does not diagnose seizures, label artifact, or guide care.</div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">INTERACTIVE PIPELINE WALKTHROUGH</div>
+          <h1>From ECG trace to explainable features</h1>
+          <p>Move one beat at a time and watch every branch measure a different part of the same ECG.</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="layout-toggle presenter-button" id="presenterGuideButton" type="button"><span>●</span> Presenter guide</button>
+          <button class="layout-toggle" id="layoutToggle" type="button" aria-pressed="true"><span>↗</span> Detailed view</button>
+          <button class="icon-button" id="glossaryButton" title="Feature glossary" aria-label="Open feature glossary">?</button>
+          <div class="safety-badge"><span></span> Measurements only</div>
+        </div>
+      </header>
+
+      <section class="workflow-card" aria-label="Analysis workflow">
+        <div class="workflow-step active" id="stageSignal">
+          <div class="step-number">1</div><div><b>ECG signal</b><span>raw input</span></div>
+        </div>
+        <div class="workflow-connector"><i></i></div>
+        <div class="workflow-step" id="stagePeaks">
+          <div class="step-number">2</div><div><b>R peaks</b><span>heartbeat anchors</span></div>
+        </div>
+        <div class="workflow-branches">
+          <div class="workflow-step morphology-stage" id="stageMorph">
+            <div class="step-number">3A</div><div><b>Morphology</b><span>beat shape</span></div>
+          </div>
+          <div class="workflow-step hrv-stage" id="stageHrv">
+            <div class="step-number">3B</div><div><b>RR / HRV</b><span>rhythm dynamics</span></div>
+          </div>
+          <div class="workflow-step quality-stage" id="stageQuality">
+            <div class="step-number">3C</div><div><b>Signal quality</b><span>measurement context</span></div>
+          </div>
+          <div class="workflow-step conduction-stage" id="stageConduction">
+            <div class="step-number">3D</div><div><b>Conduction</b><span>interval information</span></div>
+          </div>
+        </div>
+        <div class="workflow-connector"><i></i></div>
+        <div class="workflow-step matrix-stage" id="stageMatrix">
+          <div class="step-number">4</div><div><b>Feature matrix</b><span>time alignment</span></div>
+        </div>
+      </section>
+
+      <section class="slow-guide" aria-live="polite" aria-label="Slow-motion extraction guide">
+        <div class="guide-index"><span>NOW</span><strong id="guideStep">Step 0</strong></div>
+        <div class="guide-copy">
+          <div class="eyebrow" id="guidePhase">READY FOR THE WALKTHROUGH</div>
+          <h2 id="guideTitle">Start with the ECG itself</h2>
+          <p id="guideCopy">The trace is the only input. Press “Run every feature branch,” then use the previous and next beat buttons to inspect the extraction without rushing.</p>
+          <p class="guide-why"><b>Why this exists:</b> <span id="guideWhy">It keeps every later number visibly connected to the waveform that produced it.</span></p>
+        </div>
+        <div class="guide-progress" id="guideProgress" aria-label="Extraction progress">
+          <i class="active" title="signal"></i><i title="R peak"></i><i title="morphology"></i><i title="RR/HRV"></i><i title="quality"></i><i title="conduction"></i><i title="matrix"></i>
+        </div>
+      </section>
+
+      <section class="panel signal-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-kicker teal">LIVE SIGNAL</div>
+            <h2>ECG trace <span id="signalWindowLabel">· waiting for input</span></h2>
+          </div>
+          <div class="legend-row">
+            <span><i class="legend-line signal-line"></i>ECG</span>
+            <span><i class="legend-marker"></i>Detected R peak</span>
+            <span><i class="legend-band patient-band"></i>Patient crop</span>
+            <span><i class="legend-band boundary-band"></i>Auto QRS</span>
+            <span><i class="legend-cursor"></i>Extraction cursor</span>
+          </div>
+        </div>
+        <div class="canvas-wrap signal-canvas-wrap">
+          <canvas id="signalCanvas" aria-label="ECG signal plot"></canvas>
+          <div class="canvas-empty" id="signalEmpty">
+            <div class="empty-wave" aria-hidden="true">⌁</div>
+            <strong>Your ECG will appear here</strong>
+            <span>Use the prepared example for an immediate walkthrough.</span>
+          </div>
+        </div>
+        <div class="playback-bar">
+          <button class="step-button" id="previousBeatButton" disabled aria-label="Go to previous heartbeat">←<span>previous beat</span></button>
+          <button class="play-button" id="playButton" disabled aria-label="Play or pause extraction"><span id="playIcon">▶</span></button>
+          <button class="step-button" id="nextBeatButton" disabled aria-label="Go to next heartbeat"><span>next beat</span>→</button>
+          <div class="timeline-block">
+            <input id="timeline" type="range" min="0" max="1000" value="0" disabled aria-label="Extraction timeline">
+            <div class="timeline-labels"><span id="elapsedLabel">0:00</span><span id="cursorLabel">Ready to analyze</span><span id="durationLabel">0:00</span></div>
+          </div>
+          <label class="speed-control">Playback
+            <select id="speedSelect" disabled>
+              <option value="0.25">¼× very slow</option>
+              <option value="0.5" selected>½× teaching</option>
+              <option value="1">1× real time</option>
+              <option value="2">2×</option>
+              <option value="5">5×</option>
+              <option value="15">15×</option>
+              <option value="30">30×</option>
+              <option value="60">60×</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel morphology-lab morphology-panel">
+          <div class="branch-accent"></div>
+          <div class="panel-header branch-header">
+            <div class="branch-title">
+              <div class="branch-icon morphology-icon" aria-hidden="true">
+                <svg viewBox="0 0 30 30"><path d="M4 22c4-14 7 0 11-10s6 8 11-4"/></svg>
+              </div>
+              <div><div class="panel-kicker amber">MORPHOLOGY BRANCH</div><h2>Three deterministic shape lanes</h2></div>
+            </div>
+            <div class="status-pill pending" id="morphStatus"><span></span>Waiting</div>
+          </div>
+          <div class="truth-banner">
+            <span class="truth-chip implemented">Implemented</span>
+            <span class="truth-chip estimated">Automatic boundaries</span>
+            <p><strong>Important:</strong> MIT-BIH supplies beat labels, not manual QRS onset/offset ground truth. The calibration animation demonstrates the real algorithm using automatic prominence estimates.</p>
+          </div>
+          <div class="lane-map" aria-label="Morphology branch architecture">
+            <article><span>01 · calibrated Varon</span><strong>Patient QRS crop</strong><p>Separate onset→R and R→offset P95 extents → five raw QRS crops → uncentered Q·Qᵀ → λ1–λ5.</p></article>
+            <article><span>02 · whole beat</span><strong>Patient template</strong><p>Midpoint-bounded P–QRS–T cycles → template residual, correlation and D-DTW.</p></article>
+            <article><span>03 · interpretable</span><strong>P–QRS–T features</strong><p>Durations, intervals, amplitudes, area, polarity and missing-landmark flags.</p></article>
+          </div>
+
+          <section class="calibration-workbench">
+            <div class="method-heading">
+              <div><div class="method-number">CAL</div><div><strong>Patient/lead calibration</strong><span id="calibrationProvenance">First chronological automatic QRS boundaries</span></div></div>
+              <div class="freeze-state" id="calibrationState">Waiting for analysis</div>
+            </div>
+            <div class="calibration-metrics">
+              <div><span>Collected</span><strong id="calProgressMetric">0 / 20</strong></div>
+              <div><span>P95 onset → R</span><strong id="calPreMetric">—</strong></div>
+              <div><span>P95 R → offset</span><strong id="calPostMetric">—</strong></div>
+              <div><span>Applied crop</span><strong id="calWindowMetric">—</strong></div>
+              <div><span>Freeze time</span><strong id="calFreezeMetric">—</strong></div>
+            </div>
+            <div class="calibration-steps" aria-label="Calibration state machine">
+              <div class="cal-step" id="calStepCollect"><i>1</i><b>Collect</b><span>first eligible beats</span></div>
+              <div class="cal-arrow">→</div>
+              <div class="cal-step" id="calStepSummarize"><i>2</i><b>Summarize</b><span>separate marginal P95s</span></div>
+              <div class="cal-arrow">→</div>
+              <div class="cal-step" id="calStepFreeze"><i>3</i><b>Freeze</b><span>patient + lead extents</span></div>
+              <div class="cal-arrow">→</div>
+              <div class="cal-step" id="calStepEvaluate"><i>4</i><b>Evaluate</b><span>later beats only</span></div>
+            </div>
+            <div class="canvas-wrap calibration-canvas-wrap"><canvas id="calibrationCanvas" aria-label="Overlaid calibration QRS complexes and crop masks"></canvas></div>
+            <div class="technical-caption"><span><i class="legend-line raw-overlay"></i>Raw lead-amplitude QRS traces</span><span><i class="legend-band patient-band"></i>Running/frozen patient P95 crop</span><span><i class="legend-band boundary-band"></i>Automatic QRS boundaries</span></div>
+          </section>
+
+          <div class="morphology-method-grid">
+            <article class="method-card varon-card">
+              <div class="method-heading"><div><div class="method-number">V</div><div><strong>Patient-calibrated five-QRS Varon</strong><span>Actual raw patient-window crops; no per-beat centering or normalization</span></div></div><span class="method-tag">implemented</span></div>
+              <div class="mini-metrics four">
+                <div><span>Aligned</span><strong id="morphBeatMetric">0 / 5</strong></div>
+                <div><span>Windows</span><strong id="morphWindowMetric">0</strong></div>
+                <div><span>Latest λ1</span><strong id="lambdaMetric">—</strong></div>
+                <div><span>Frozen crop</span><strong id="inlineCropMetric">—</strong></div>
+              </div>
+              <div class="canvas-wrap method-canvas-wrap"><canvas id="morphCanvas" aria-label="Five actual overlaid patient-calibrated QRS waveforms"></canvas></div>
+              <p class="method-footnote">The crop is patient- and lead-specific and appears only after calibration freezes. Fewer than five eligible calibration beats leaves this lane unavailable rather than substituting another crop.</p>
+            </article>
+
+            <article class="method-card template-card">
+              <div class="method-heading"><div><div class="method-number">T</div><div><strong>Whole-cycle patient template</strong><span>Full midpoint-bounded cardiac cycle</span></div></div><span class="method-tag">implemented</span></div>
+              <div class="mini-metrics four">
+                <div><span>Calibration</span><strong id="templateBuildMetric">0 / 20</strong></div>
+                <div><span>Template bank</span><strong id="templateCountMetric">—</strong></div>
+                <div><span>Correlation</span><strong id="templateCorrMetric">—</strong></div>
+                <div><span>D-DTW</span><strong id="templateDtwMetric">—</strong></div>
+              </div>
+              <div class="canvas-wrap method-canvas-wrap"><canvas id="templateCanvas" aria-label="Patient whole-cycle template and current beat"></canvas></div>
+              <p class="method-footnote">Cycles are resampled before/after R separately. The template is frozen after calibration; RR timing remains in the HRV branch.</p>
+            </article>
+
+            <article class="method-card pqrst-card">
+              <div class="method-heading"><div><div class="method-number">P</div><div><strong>Interpretable P–QRS–T lane</strong><span>Automatic prominence landmarks</span></div></div><span class="method-tag estimated">not manual GT</span></div>
+              <div class="mini-metrics four">
+                <div><span>QRS</span><strong id="qrsDurationMetric">—</strong></div>
+                <div><span>PR</span><strong id="prMetric">—</strong></div>
+                <div><span>QT</span><strong id="qtMetric">—</strong></div>
+                <div><span>Polarity</span><strong id="polarityMetric">—</strong></div>
+              </div>
+              <div class="canvas-wrap method-canvas-wrap"><canvas id="pqrstCanvas" aria-label="Actual ECG beat with automatic P QRS and T landmarks"></canvas></div>
+              <div class="landmark-strip" id="landmarkStrip"><span>P onset</span><span>P</span><span>P offset</span><span>QRS onset</span><span>R</span><span>QRS offset</span><span>T onset</span><span>T</span><span>T offset</span></div>
+            </article>
+          </div>
+      </section>
+
+      <section class="panel branch-panel hrv-panel hrv-detail-panel">
+          <div class="branch-accent"></div>
+          <div class="panel-header branch-header">
+            <div class="branch-title">
+              <div class="branch-icon hrv-icon" aria-hidden="true">
+                <svg viewBox="0 0 30 30"><path d="M4 20l5-7 5 4 5-10 7 9"/><circle cx="4" cy="20" r="1.5"/><circle cx="9" cy="13" r="1.5"/><circle cx="14" cy="17" r="1.5"/><circle cx="19" cy="7" r="1.5"/><circle cx="26" cy="16" r="1.5"/></svg>
+              </div>
+              <div><div class="panel-kicker purple">RR / HRV BRANCH</div><h2>How does timing vary?</h2></div>
+            </div>
+            <div class="status-pill pending" id="hrvStatus"><span></span>Waiting</div>
+          </div>
+          <p class="branch-explainer">The same R anchors create two complementary autonomic lanes. The existing Jeppesen lane measures 100-RR Poincaré/trend behavior. The added Varon-2015 lane uses 80 beats to measure heart-rate acceleration patterns (PRSA) and how the R-amplitude respiration surrogate triggers RR changes (BPRSA). Neither lane is a classifier.</p>
+          <div class="autonomic-lane-map" aria-label="RR and autonomic branch architecture">
+            <article><span>01 · 100 RR</span><strong>Jeppesen / Poincaré lane</strong><p>Causal 7-RR median → SD1, SD2, CSI, ModCSI and heart-rate slope → J1/J2.</p></article>
+            <article><span>02 · 80 beats</span><strong>Varon PRSA / BPRSA lane</strong><p>4-Hz RR and R-amplitude tracks → decreasing anchors → ±5-second phase averages → local and long-range slopes.</p></article>
+          </div>
+          <div class="subbranch-title"><strong>100-RR timing features</strong><span>Existing independent HRV lane</span></div>
+          <div class="branch-metrics hrv-metrics">
+            <div><span>Latest heart rate</span><strong id="heartRateMetric">—</strong></div>
+            <div><span>HRV window</span><strong id="hrvBuildMetric">0 / 100</strong></div>
+            <div><span>Latest SD1</span><strong id="sd1Metric">—</strong></div>
+            <div><span>Latest SD2</span><strong id="sd2Metric">—</strong></div>
+            <div><span>CSI / ModCSI</span><strong id="csiMetric">—</strong></div>
+            <div><span>J1 / J2</span><strong id="jointMetric">—</strong></div>
+          </div>
+          <div class="canvas-wrap hrv-canvas-wrap">
+            <canvas id="hrvCanvas" aria-label="RR interval timeline"></canvas>
+          </div>
+          <div class="branch-caption"><i class="rr-dot" aria-hidden="true"></i> Each point is one RR interval; the line is a causal 7-RR median</div>
+          <section class="prsa-workbench">
+            <div class="subbranch-title"><strong>80-beat PRSA / BPRSA</strong><span>Implemented from Varon et al. (2015) · no calibration · no KSC classifier</span></div>
+            <div class="prsa-metrics">
+              <div><span>Window</span><strong id="prsaBuildMetric">0 / 80</strong></div>
+              <div><span>Mean RR / SDNN</span><strong id="prsaRrMetric">—</strong></div>
+              <div><span>PRSA S<sub>RR</sub></span><strong id="prsaSlopeMetric">—</strong></div>
+              <div><span>PRSA Δ<sub>RR</sub></span><strong id="prsaDeltaMetric">—</strong></div>
+              <div><span>BPRSA S<sub>R</sub></span><strong id="bprsaSlopeMetric">—</strong></div>
+              <div><span>BPRSA Δ<sub>R</sub></span><strong id="bprsaDeltaMetric">—</strong></div>
+              <div><span>Usable anchors</span><strong id="prsaAnchorMetric">—</strong></div>
+              <div><span>Support</span><strong id="prsaSupportMetric">—</strong></div>
+            </div>
+            <div class="canvas-wrap prsa-canvas-wrap"><canvas id="prsaCanvas" aria-label="PRSA and BPRSA phase-averaged RR curves"></canvas></div>
+            <div class="technical-caption"><span><i class="legend-line prsa-line"></i>PRSA: RR triggers RR</span><span><i class="legend-line bprsa-line"></i>BPRSA: R amplitude triggers RR</span><span>Vertical zero = anchor point; horizontal axis = seconds around anchor</span></div>
+          </section>
+      </section>
+
+      <section class="panel branch-panel quality-panel">
+        <div class="branch-accent"></div>
+        <div class="panel-header branch-header">
+          <div class="branch-title">
+            <div class="branch-icon quality-icon" aria-hidden="true">Q</div>
+            <div><div class="panel-kicker cyan">SIGNAL-QUALITY BRANCH</div><h2>Can each quality measurement be computed?</h2></div>
+          </div>
+          <div class="status-pill pending" id="qualityStatus"><span></span>Waiting</div>
+        </div>
+        <div class="truth-banner quality-truth">
+          <span class="truth-chip implemented">Continuous measurements</span>
+          <span class="truth-chip estimated">No threshold</span>
+          <p><strong>This branch does not call the ECG “clean” or “artifact.”</strong> Every 10-second trailing window reports measured values and, separately, whether each value was computable from the supplied metadata.</p>
+        </div>
+        <div class="extraction-story four-story" aria-label="Signal quality extraction steps">
+          <article><i>1</i><strong>Open a trailing window</strong><p>Use only the 10 seconds ending at the cursor. Future samples never enter the row.</p></article>
+          <article><i>2</i><strong>Inspect signal integrity</strong><p>Count finite samples and flat runs; amplitude features require a known physical unit.</p></article>
+          <article><i>3</i><strong>Measure spectrum + beats</strong><p>Compute baseline/QRS-band ratios and within-window beat-template similarity.</p></article>
+          <article><i>4</i><strong>Compare detectors</strong><p>bSQI, qSQI and RR support describe agreement between the independent peak sequences.</p></article>
+        </div>
+        <div class="branch-metrics quality-metrics">
+          <div><span>Trailing window</span><strong id="qualityWindowMetric">0 / 10 s</strong></div>
+          <div><span>Finite samples</span><strong id="qualityFiniteMetric">—</strong></div>
+          <div><span>Flat fraction</span><strong id="qualityFlatMetric">—</strong></div>
+          <div><span>basSQI / pSQI</span><strong id="qualitySpectrumMetric">—</strong></div>
+          <div><span>bSQI / qSQI</span><strong id="qualityAgreementMetric">—</strong></div>
+          <div><span>RR support</span><strong id="qualityRrMetric">—</strong></div>
+          <div><span>Beat correlation</span><strong id="qualityTemplateMetric">—</strong></div>
+          <div><span>Computable</span><strong id="qualityAvailabilityMetric">—</strong></div>
+        </div>
+        <div class="canvas-wrap quality-canvas-wrap"><canvas id="qualityCanvas" aria-label="Trailing signal-quality measurement history"></canvas></div>
+        <div class="quality-key"><span><i class="quality-line baseline"></i>basSQI</span><span><i class="quality-line agreement"></i>bSQI</span><span><i class="quality-line template"></i>beat correlation</span><small>All three plotted quantities are unitless. Higher or lower is not converted into a clinical verdict.</small></div>
+        <div class="availability-board">
+          <div><strong>Computability audit</strong><span id="qualityUnitNote">Waiting for signal-unit metadata</span></div>
+          <div class="availability-list" id="qualityReasonList"><span class="availability-chip pending">Run the branch to see prerequisites</span></div>
+        </div>
+      </section>
+
+      <section class="panel branch-panel conduction-panel">
+        <div class="branch-accent"></div>
+        <div class="panel-header branch-header">
+          <div class="branch-title">
+            <div class="branch-icon conduction-icon" aria-hidden="true">ms</div>
+            <div><div class="panel-kicker rose">CONDUCTION + REPOLARIZATION</div><h2>What do the automatic landmarks say about timing?</h2></div>
+          </div>
+          <div class="status-pill pending" id="conductionStatus"><span></span>Waiting</div>
+        </div>
+        <div class="truth-banner conduction-truth">
+          <span class="truth-chip estimated">Information only</span>
+          <span class="truth-chip estimated">Manual validation pending</span>
+          <p><strong>No abnormality is inferred.</strong> These values inherit uncertainty from automatic P-onset, QRS and T-offset landmarks. They are shown to explain the branch, not to diagnose conduction disease or seizures.</p>
+        </div>
+        <div class="extraction-story" aria-label="Conduction extraction steps">
+          <article><i>1</i><strong>Reuse landmarks</strong><p>P onset, QRS onset/offset, T peak and T offset come from the morphology delineator.</p></article>
+          <article><i>2</i><strong>Subtract timestamps</strong><p>PR, QRS, QT, JT and Tpeak→Tend are transparent sample differences converted to milliseconds.</p></article>
+          <article><i>3</i><strong>Pair QT with RR</strong><p>The current QT uses the preceding RR to display Bazett, Fridericia and Framingham corrections side by side.</p></article>
+          <article><i>4</i><strong>Add causal context</strong><p>Five-beat local change, nine-beat QT/RR averaging and 30-beat variability use only current and earlier beats.</p></article>
+        </div>
+        <div class="branch-metrics conduction-metrics">
+          <div><span>PR</span><strong id="conductionPrMetric">—</strong></div>
+          <div><span>QRS</span><strong id="conductionQrsMetric">—</strong></div>
+          <div><span>QT / JT</span><strong id="conductionQtMetric">—</strong></div>
+          <div><span>Tpeak → Tend</span><strong id="conductionTpeMetric">—</strong></div>
+          <div><span>QTc Bazett</span><strong id="conductionBazettMetric">—</strong></div>
+          <div><span>QTc Fridericia</span><strong id="conductionFridericiaMetric">—</strong></div>
+          <div><span>QTc Framingham</span><strong id="conductionFraminghamMetric">—</strong></div>
+          <div><span>ΔPR / ΔQT</span><strong id="conductionDeltaMetric">—</strong></div>
+        </div>
+        <div class="canvas-wrap conduction-canvas-wrap"><canvas id="conductionCanvas" aria-label="Beatwise conduction and repolarization intervals"></canvas></div>
+        <div class="conduction-key"><span><i class="conduction-line pr"></i>PR</span><span><i class="conduction-line qrs"></i>QRS</span><span><i class="conduction-line qt"></i>QT</span><span><i class="conduction-line jt"></i>JT</span></div>
+        <div class="context-window-grid">
+          <article><span>5-BEAT LOCAL VIEW</span><strong id="conductionFiveMetric">Building 0 / 5</strong><p id="conductionFiveCopy">Median, range and robust slope appear after enough automatic QT measurements.</p></article>
+          <article><span>9-BEAT PAPER CONTEXT</span><strong id="conductionNineMetric">Building 0 / 9</strong><p>Mean QT and mean preceding RR, then named QT correction. No seizure detector is reproduced.</p></article>
+          <article><span>30-BEAT VARIABILITY</span><strong id="conductionThirtyMetric">Building 0 / 30</strong><p id="conductionThirtyCopy">SD/RMSSD and exploratory context require a complete trailing history.</p></article>
+        </div>
+      </section>
+
+      <section class="panel matrix-panel">
+        <div class="panel-header matrix-header">
+          <div>
+            <div class="panel-kicker blue">COMBINED VIEW</div>
+            <h2>Time-aligned feature matrix</h2>
+            <p>Each row causally joins the latest morphology, RR/HRV, autonomic, signal-quality and conduction measurements available at that time. Context columns never alter the core measurement gate.</p>
+          </div>
+          <div class="matrix-actions">
+            <label class="matrix-filter">Columns
+              <select id="matrixGroupSelect">
+                <option value="all">All branches</option>
+                <option value="varon">Patient-calibrated Varon</option>
+                <option value="template">Whole-cycle template</option>
+                <option value="pqrst">P–QRS–T</option>
+                <option value="hrv">RR / HRV</option>
+                <option value="prsa">PRSA / BPRSA</option>
+                <option value="quality">Signal quality</option>
+                <option value="conduction">Conduction</option>
+              </select>
+            </label>
+            <div class="matrix-summary"><span id="matrixRowMetric">0</span><small>complete rows</small></div>
+            <button class="button button-compact" id="exportButton" disabled>Export CSV</button>
+          </div>
+        </div>
+        <div class="matrix-legend">
+          <span><i class="branch-swatch morph-swatch"></i>Morphology · patient Varon, template and P–QRS–T</span>
+          <span><i class="branch-swatch hrv-swatch"></i>HRV · timing + PRSA/BPRSA coupling</span>
+          <span><i class="branch-swatch quality-swatch"></i>Quality · measured context, no label</span>
+          <span><i class="branch-swatch conduction-swatch"></i>Conduction · information only</span>
+          <span class="heat-legend">Relative value <i></i><i></i><i></i><i></i><i></i></span>
+          <span class="matrix-note">Color is scaled per column for viewing—not a risk score.</span>
+        </div>
+        <div class="matrix-scroll">
+          <table class="feature-matrix" id="featureMatrix">
+            <thead><tr><th class="time-column">Time</th><th class="status-column">Data state</th></tr></thead>
+            <tbody><tr class="matrix-empty-row"><td colspan="33"><div><strong>The matrix will assemble during playback</strong><span>Patient Varon and template evaluation wait for frozen calibration; PRSA/BPRSA waits for 80 beats and full HRV waits for 100 RR intervals.</span></div></td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <span>ECG Cascade feature-extraction research demo</span>
+        <span>Deterministic measurements · no classifier · no clinical validation claim</span>
+      </footer>
+    </main>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay" hidden>
+    <div class="loading-card">
+      <div class="loader-rings"><i></i><i></i><i></i></div>
+      <h2 id="loadingTitle">Running every branch</h2>
+      <p id="loadingMessage">Detecting heartbeat anchors and calculating feature sequences…</p>
+      <div class="loading-steps"><span class="done">Signal</span><i></i><span>R peaks</span><i></i><span>4 branches</span><i></i><span>Matrix</span></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastIcon">✓</span><div><strong id="toastTitle">Ready</strong><p id="toastMessage"></p></div></div>
+
+  <dialog class="glossary-dialog" id="glossaryDialog">
+    <div class="dialog-header"><div><div class="eyebrow">PLAIN-LANGUAGE GUIDE</div><h2>What the matrix contains</h2></div><button class="icon-button" id="closeGlossary" aria-label="Close glossary">×</button></div>
+    <p class="dialog-intro">These are intermediate measurements passed toward later research stages. None is a diagnosis on its own.</p>
+    <div class="glossary-grid" id="glossaryGrid"></div>
+    <div class="dialog-caveat"><strong>Important:</strong> “Combined” means time-aligned in this demo. No trained fusion model or seizure probability is applied.</div>
+  </dialog>
+
+  <dialog class="presenter-dialog" id="presenterDialog">
+    <div class="dialog-header presenter-dialog-header">
+      <div><div class="eyebrow">YOUR SPOKEN WALKTHROUGH</div><h2>What every dashboard widget means</h2></div>
+      <button class="icon-button" id="closePresenterGuide" aria-label="Close presenter guide">×</button>
+    </div>
+    <p class="dialog-intro">Follow these cards from left to right and top to bottom. “Say this” is deliberately non-technical and clinically cautious.</p>
+    <div class="presenter-guide-grid">
+      <article>
+        <div class="presenter-number">01</div><div><h3>Choose an ECG</h3><p><b>Widget:</b> Prepared example loads MIT-BIH record 100. Upload accepts EDF, WFDB or numeric CSV. The source card confirms the file, channel count, sampling rate and duration.</p><blockquote>“I begin by choosing the ECG. For this demonstration I use the prepared record, but the same pipeline accepts our study formats.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">02</div><div><h3>Segment controls</h3><p><b>Widget:</b> Channel chooses the lead. Start and Duration choose the analyzed time interval. CSV sampling rate appears only when it cannot be inferred.</p><blockquote>“Here I choose exactly which lead and time segment enter the analysis, so the input is explicit and reproducible.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">03</div><div><h3>Timestamp track and calibration</h3><p><b>Widget:</b> NeuroKit/Zhai selects the displayed R-peak track; it does not declare a clinical winner. Calibration must be at least five because Varon mathematically stacks five aligned QRS complexes.</p><blockquote>“I can inspect either independent detector track. At least five early eligible beats define a patient-specific shape reference, which is then frozen.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">04</div><div><h3>Workflow ribbon</h3><p><b>Widget:</b> Signal → R peaks → four parallel branches → matrix. A colored step is active or complete; a pale step is still waiting for enough history.</p><blockquote>“This ribbon is the map: one ECG supplies shared heartbeat anchors, four branches measure different properties, and the matrix aligns their outputs in time.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">05</div><div><h3>Slow-motion narrator</h3><p><b>Widget:</b> NOW, Step, title and Why update with the cursor. The seven dots summarize overall progress.</p><blockquote>“The narrator explains what becomes available at this instant and why a feature may still be blank.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">06</div><div><h3>Live ECG and playback</h3><p><b>Widget:</b> Blue markers are detected R peaks. Shaded bands show the frozen patient crop and automatic QRS boundaries. Amber is the extraction cursor. Previous/next beat, play, timeline and speed control the replay.</p><blockquote>“The waveform is never disconnected from the numbers. I can pause, move one beat at a time, or replay as slowly as one-quarter speed.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">07</div><div><h3>Morphology: calibration</h3><p><b>Widget:</b> Collected counts eligible calibration beats. P95 onset→R and R→offset estimate asymmetric crop extents. Applied crop and freeze time show the fixed patient/lead window.</p><blockquote>“Instead of forcing one crop on every patient, the algorithm learns separate left and right QRS extents from early beats, then stops adapting.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">08</div><div><h3>Morphology: three shape lanes</h3><p><b>Widget:</b> Varon shows five-QRS λ1–λ5 shape-energy features. Template shows similarity and D-DTW to the frozen whole-cycle reference. P–QRS–T shows interpretable QRS, PR, QT and polarity measurements.</p><blockquote>“These lanes answer three questions: how a five-beat QRS group changes, how a beat differs from the patient template, and which specific waveform intervals changed.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">09</div><div><h3>RR / HRV</h3><p><b>Widget:</b> Heart rate and RR update beat by beat. SD1/SD2 describe Poincaré variability; CSI/ModCSI and J1/J2 combine geometry with heart-rate trend. The plot shows recent RR values.</p><blockquote>“Morphology describes shape; this purple branch describes rhythm timing and how that timing evolves.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">10</div><div><h3>PRSA / BPRSA</h3><p><b>Widget:</b> The 80-beat counter must fill first. Mean RR/SDNN summarize timing; PRSA slopes describe acceleration-linked RR behavior; BPRSA slopes use R amplitude as a respiration-related trigger. Anchor and support fields audit computability.</p><blockquote>“This is autonomic and cardiorespiratory context from an 80-beat history. It is a feature extractor, not the paper’s seizure classifier.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">11</div><div><h3>Signal quality</h3><p><b>Widget:</b> Each causal 10-second window reports finite/flat fractions, spectral basSQI/pSQI, detector-agreement bSQI/qSQI, RR support and beat-template correlation. Computable reports how many prerequisites were available.</p><blockquote>“This branch measures evidence about signal quality. It deliberately does not turn those measurements into a clean-versus-artifact label.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">12</div><div><h3>Conduction and repolarization</h3><p><b>Widget:</b> PR, QRS, QT/JT and Tpeak→Tend come from automatic landmarks. Three QTc formulas are shown side by side. ΔPR/ΔQT show beat-to-beat change; 5-, 9- and 30-beat cards add causal context.</p><blockquote>“These are transparent timing measurements. They are information-only because automatic landmark validation is still pending; no abnormality is assigned.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">13</div><div><h3>Combined feature matrix</h3><p><b>Widget:</b> Each row is one time-aligned snapshot. Columns can be filtered by branch. Complete rows satisfy the core morphology/HRV gate. Cell color is relative within each column. Export CSV saves the measurements and safety flags.</p><blockquote>“Combined means causally time-aligned—not averaged and not classified. The heat colors help us see change; they are not a risk score.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">14</div><div><h3>Status pills and safety language</h3><p><b>Widget:</b> Waiting/Building/Complete describe computational state, not health. Measurements only, no classifier, no artifact label and information-only labels define the permitted interpretation.</p><blockquote>“Everything on this screen is an auditable intermediate measurement. The demo does not diagnose a seizure, artifact, or conduction disorder.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">15</div><div><h3>How to read the live ECG graph</h3><p><b>Axes:</b> horizontal is time in seconds; vertical is raw lead amplitude. Blue dots mark detected R peaks, teal marks the automatic QRS boundary, blue shading is the frozen patient crop and amber is the current replay time. A large deflection can be physiology or noise; this graph alone cannot decide which.</p><blockquote>“This is the source waveform. Every colored marker shows exactly where the later measurements came from.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">16</div><div><h3>How to read the five aligned QRS graph</h3><p><b>Axes:</b> horizontal is milliseconds from R = 0; vertical is raw lead amplitude. The five overlaid traces are the exact QRS crops used in one Varon window. Tight overlap means similar shape; separation means shape or amplitude changed, or noise/boundary error entered the crop. λ1–λ5 summarize these traces and are scale-dependent—not diagnoses.</p><blockquote>“I align five beats on the R peak. The picture shows their actual overlap; the five eigenvalues turn that same picture into numeric columns.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">17</div><div><h3>How to read the template graph</h3><p><b>Axes:</b> horizontal is normalized cardiac-cycle phase around R; vertical is centered lead amplitude. Green traces are the frozen patient reference and blue is the current cycle. Correlation nearer 1 means more similar shape; normalized RMSE, residual and D-DTW are better read as smaller = closer.</p><blockquote>“This lane asks how far the current whole beat has moved from this patient’s own early reference.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">18</div><div><h3>How to read the P–QRS–T graph</h3><p><b>Axes:</b> horizontal is milliseconds from R; vertical is ECG amplitude. Dots label automatic P, QRS and T landmarks and the shaded band marks QRS. Horizontal distances become PR, QRS, QT, JT and ST intervals; vertical distances become amplitudes. Missing dots mean unavailable landmarks.</p><blockquote>“This is the interpretable lane: the software shows the landmarks before it subtracts their times or amplitudes.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">19</div><div><h3>How to read RR / HRV and PRSA graphs</h3><p><b>RR graph:</b> time versus milliseconds between R peaks; a higher point means a longer interval and slower instantaneous rate. Purple is the causal median and gray means unsupported. <b>PRSA/BPRSA:</b> time around an anchor versus averaged RR; the center slope summarizes acceleration/deceleration-linked timing, while BPRSA anchors on R amplitude.</p><blockquote>“These graphs describe when beats occur and how timing changes; they do not describe waveform shape.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">20</div><div><h3>How to read the signal-quality graph</h3><p><b>Axes:</b> horizontal is the end time of each causal 10-second window; vertical is a unitless 0–1 measurement. Each colored line is one available SQI. A value being plotted means it was computable, not that the signal passed a clean/noisy threshold.</p><blockquote>“The quality branch exposes its evidence and availability; it intentionally does not assign an artifact label.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">21</div><div><h3>How to read the conduction graph</h3><p><b>Axes:</b> horizontal is beat time; vertical is interval duration in milliseconds. Separate lines track PR, QRS, QT and JT. Look for stability or change across beats, but keep the automatic-landmark caveat visible: this is information-only until clinically validated.</p><blockquote>“The line heights are transparent interval measurements, not normal-versus-abnormal decisions.”</blockquote></div>
+      </article>
+      <article>
+        <div class="presenter-number">22</div><div><h3>How to read the matrix heat colors</h3><p><b>Rows:</b> time-aligned beats or windows. <b>Columns:</b> extracted measurements. Color is normalized separately inside each column, so darker means relatively high for that feature—not high clinical risk—and colors cannot be compared across differently scaled columns.</p><blockquote>“The matrix is where the branches meet in time. Its colors reveal within-feature change; they are not a classifier score.”</blockquote></div>
+      </article>
+    </div>
+    <div class="presenter-close-row"><button class="button button-primary" id="presenterDoneButton">Return to dashboard</button></div>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

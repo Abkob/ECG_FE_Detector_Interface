@@ -1,0 +1,30 @@
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.72in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{enumitem}
+\definecolor{navy}{HTML}{183B5B}
+\definecolor{pale}{HTML}{EDF4F8}
+\definecolor{warn}{HTML}{FFF4E5}
+\hypersetup{colorlinks=true,linkcolor=navy,citecolor=navy,urlcolor=navy}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+\setlist[itemize]{nosep,leftmargin=1.4em}
+\renewcommand{\arraystretch}{1.12}
+\newcommand{\evidencebox}[2]{%
+  \begin{center}\fcolorbox{navy}{pale}{\begin{minipage}{0.94\linewidth}
+  \textbf{#1}\quad #2
+  \end{minipage}}\end{center}}
+\newcommand{\warningbox}[2]{%
+  \begin{center}\fcolorbox{orange!75!black}{warn}{\begin{minipage}{0.94\linewidth}
+  \textbf{#1}\quad #2
+  \end{minipage}}\end{center}}
+\newcommand{\metricdef}{Expert beats were paired one-to-one with detections inside $\pm75$ ms. TP is a paired detection, FP is an unpaired detector output, FN is an unpaired expert beat, and $F_1=2TP/(2TP+FP+FN)$.}
+\newcommand{\provenance}{The ``historical'' rows reproduce the earlier NeuroKit/Pan--Tompkins hard-gate experiment. The ``current'' rows come from the complete all-48-record audit. Small NeuroKit count differences between audit versions reflect implementation/configuration differences and must not be interpreted as physiology.}

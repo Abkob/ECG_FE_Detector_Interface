@@ -1,0 +1,75 @@
+# Local proof-of-concept recordings discovered on this workstation.
+# Channel names are taken from the EDF headers, not from summary-file numbering.
+
+[[recordings]]
+id = "chb04_28"
+patient = "chb04"
+path = "C:/Users/Salam/Downloads/chb04_28/chb04_28.edf"
+ecg_channel = "ECG"
+expected_sampling_rate_hz = 256
+seizures_s = [[1679, 1781], [3782, 3898]]
+
+[[recordings]]
+id = "pn06_1"
+patient = "PN06"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN06/PN06-1.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[5583, 5647]]
+
+[[recordings]]
+id = "pn06_2"
+patient = "PN06"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN06/PN06-2.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[8860, 8929]]
+
+[[recordings]]
+id = "pn06_3"
+patient = "PN06"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN06/PN06-3.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[6275, 6317]]
+
+[[recordings]]
+id = "pn06_4"
+patient = "PN06"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN06/PN06-4.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[5939, 6002]]
+
+[[recordings]]
+id = "pn06_5"
+patient = "PN06"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN06/PN06-5.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[4783, 4827]]
+
+[[recordings]]
+id = "pn12_1_2"
+patient = "PN12"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN12/PN12-1.2.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[1312, 1375], [9570, 9638]]
+
+[[recordings]]
+id = "pn12_3"
+patient = "PN12"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN12/PN12-3.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[772, 868]]
+
+[[recordings]]
+id = "pn12_4"
+patient = "PN12"
+path = "C:/Users/Salam/Downloads/Seizures-list-PN12/PN12-4.edf"
+ecg_channel = "EKG EKG"
+expected_sampling_rate_hz = 512
+seizures_s = [[9812, 9875]]
+

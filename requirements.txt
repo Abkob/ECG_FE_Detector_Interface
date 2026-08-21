@@ -1,0 +1,8 @@
+matplotlib==3.10.8
+neurokit2==0.2.13
+numpy==2.4.2
+pandas==2.3.3
+psycopg[binary]==3.3.4
+pyEDFlib==0.1.42
+scipy==1.17.0
+wfdb==4.3.1

@@ -1,0 +1,81 @@
+\documentclass[10pt]{article}
+\input{case_report_setup}
+\title{MIT--BIH Record 222\\Mixed Arrhythmia, Noise, and Boundary-Trade-off Analysis}
+\author{ECG-only seizure detector: RR--HRV branch audit}
+\date{4 August 2026}
+
+\begin{document}
+\maketitle
+
+\evidencebox{Bottom line.}{Record 222 combines atrial flutter/fibrillation, nodal escape beats, and documented high-frequency noise. The old Pan--Tompkins hard gate improved NeuroKit's $F_1$ but could not recover missed beats. The current UNSW primary detector reached $F_1=0.9982$. R-fiducial refinement improved typical timing yet worsened one-to-one beat counts by one FP and one FN, demonstrating why detector score and fiducial timing must both be audited.}
+
+\section{Record profile}
+MIT--BIH records are approximately 30 minutes long, have two channels sampled at 360 Hz, and include expert beat annotations \cite{moody2001mitbih,physionetmitdb,goldberger2000physiobank}. Record 222 is from an 84-year-old woman with MLII and V1 channels. The official summary documents paroxysmal atrial flutter/fibrillation usually followed by nodal escape beats, plus several intervals of high-frequency noise/artifact in both channels \cite{physionetmitdb}.
+
+This is a mixed-condition record. A disagreement might result from noise, rapid atrial activity, an escape beat, detector timing, or a combination. Detector agreement cannot identify the cause uniquely.
+
+\section{Full-record results}
+\metricdef\ \provenance
+
+\begin{table}[H]
+\centering
+\caption{Record 222 full-record results.}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Audit & Method & TP & FP & FN & $F_1$\\
+\midrule
+Historical & NeuroKit alone & 1,946 & 538 & 537 & 0.7836\\
+Historical & NeuroKit + forward PT veto & 1,920 & 36 & 563 & 0.8651\\
+Current & NeuroKit 300-ms baseline & 1,946 & 539 & 537 & 0.7834\\
+Current & UNSW initial event & 2,476 & 2 & 7 & 0.9982\\
+Current & UNSW refined R fiducial & 2,475 & 3 & 8 & 0.9978\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/record_222_current_metric_comparison.png}
+\caption{Current full-record comparison. UNSW nearly eliminates both error types.}
+\end{figure}
+
+\section{What the old gate did and did not do}
+The forward Pan--Tompkins veto removed 502 of NeuroKit's 538 FP but also discarded 26 additional true detections. It therefore improved PPV and $F_1$, yet left 563 FN. A validator can remove candidates; it cannot restore a QRS that the primary detector never emitted.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_222_historical_hard_gate.png}
+\caption{Historical experiment. The gate removes many red false-positive markers, but the orange expert-beat misses remain.}
+\end{figure}
+
+Pan--Tompkins uses QRS energy and adaptive thresholds \cite{pan1985qrs}; its agreement can be useful context, but it is neither an arrhythmia classifier nor an artifact label. In a record with both arrhythmia and documented noise, agreement alone cannot separate the two.
+
+\clearpage
+\section{Current architecture and the refinement paradox}
+The Khamis/UNSW detector is used as the current primary event source \cite{khamis2016telehealth,kristof2024qrs}. Initial and refined streams both contained 2,478 events. Refinement moved one formerly paired event beyond the $\pm75$-ms matching boundary, producing one extra FP and one extra FN. Nevertheless, among events that remained paired, the median absolute timing error improved from 2.78 to 0 ms and the 95th percentile improved from 11.11 to 2.78 ms.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_222_complete_architecture_strip.png}
+\caption{Current architecture. Expert symbols in this selected strip are N; the full record also includes atrial and junctional/escape annotations. Red circles denote lack of exact $\pm50$-ms secondary support, not artifact.}
+\end{figure}
+
+The refined symbol audit matched all 208 A beats, the single J beat, and all 212 j beats; the eight missed beats were among 2,062 N annotations. Thus the residual count is not evidence that unusual annotated beat classes were selectively removed.
+
+RR support covered 1,718 of 2,477 intervals (69.36\%). Mean absolute RR error was 1.70 ms for all evaluable intervals and 1.87 ms for supported intervals. The supported subset was not more accurate in this record. This is counterevidence against interpreting support as a universal continuous quality ranking.
+
+\warningbox{Critical interpretation.}{The RR-support flag remains a reason-coded consistency measurement. It cannot be promoted to ``clean versus artifact'' merely because the database also documents noise.}
+
+\section{Decision}
+\begin{itemize}
+\item Retain UNSW initial events as the current primary candidate.
+\item Retain refined timestamps as a separate output, but audit both association error and timing error.
+\item Do not let two-detector support veto RR intervals until its clinical/HRV consequence is validated.
+\item Stratify future patient data by rhythm and signal quality instead of treating record 222 as one homogeneous condition.
+\end{itemize}
+
+\begingroup\interlinepenalty=10000
+\bibliographystyle{unsrt}
+\bibliography{MITBIH_Record_Case_Reports}
+\endgroup
+\end{document}

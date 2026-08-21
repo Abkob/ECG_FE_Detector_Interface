@@ -1,0 +1,37 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node tools/build_vercel_static.mjs",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 300,
+      "includeFiles": "{feature_extraction/src/ecg_cascade/**,Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/100.hea,Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/100.dat}",
+      "excludeFiles": "{archive/**,output/**,source_materials/**,tmp/**,feature_extraction/tests/**,feature_extraction/.venv/**,**/__pycache__/**,**/*.pyc}"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(app.js|styles.css)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
+      ]
+    }
+  ]
+}

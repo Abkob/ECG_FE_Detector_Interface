@@ -1,0 +1,104 @@
+\documentclass[10pt]{article}
+\input{case_report_setup}
+\title{MIT--BIH Record 207\\Morphology, Polarity, and Hard-Gate Failure Analysis}
+\author{ECG-only seizure detector: RR--HRV branch audit}
+\date{4 August 2026}
+
+\begin{document}
+\maketitle
+
+\evidencebox{Bottom line.}{Record 207 falsifies the idea that Pan--Tompkins agreement can safely veto another detector. The old hard gate increased FN from 536 to 1,584, with catastrophic loss of left-bundle-branch-block beats. The current UNSW primary detector recovered most expert beats, but positive-amplitude R-fiducial refinement made performance slightly worse and original-polarity two-detector RR coverage remained only 9.28\%.}
+
+\section{Why this record is difficult}
+The MIT--BIH records are approximately 30-minute, two-channel ambulatory ECGs sampled at 360 Hz with expert beat annotations \cite{moody2001mitbih,physionetmitdb,goldberger2000physiobank}. Record 207 is from an 89-year-old woman with MLII and V1 channels. The official documentation describes normal sinus rhythm with first-degree AV block and predominant left bundle branch block (LBBB), intermittent right bundle branch block (RBBB), multiform PVCs, idioventricular rhythm after ventricular flutter, and termination during supraventricular tachyarrhythmia; the record is described as extremely difficult \cite{physionetmitdb}.
+
+LBBB is an intraventricular conduction abnormality that changes QRS duration, polarity, and shape; it is not automatically an arrhythmia beat and certainly not automatically artifact \cite{surawicz2009conduction}. Genuine beats in this record therefore present multiple detector ``looks.''
+
+\section{Historical morphology-stratified result}
+The table below reproduces the historical NeuroKit/forward-gate audit. ``Gate retained'' means the NeuroKit event survived the 0--100-ms Pan--Tompkins veto; it is not a fresh classification of the waveform.
+
+\begin{table}[H]
+\centering
+\caption{Record 207 historical results by expert beat symbol.}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Symbol & Expert meaning & Reference & NeuroKit matched & Gate retained\\
+\midrule
+L & Left-bundle-branch-block beat & 1,457 & 1,070 & 99\\
+R & Right-bundle-branch-block beat & 86 & 85 & 84\\
+V & Premature ventricular beat & 105 & 65 & 35\\
+E & Ventricular escape beat & 105 & 104 & 58\\
+A & Atrial premature beat & 107 & 0 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This is morphology-dependent failure. The gate retained 98.8\% of NeuroKit-matched RBBB beats but only 9.25\% of matched LBBB beats. The A row is not a gate result because NeuroKit had already missed all 107 A annotations.
+
+\clearpage
+\section{Old gate versus current detector}
+\metricdef\ \provenance
+
+\begin{table}[H]
+\centering
+\caption{Record 207 full-record results.}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Audit & Method & TP & FP & FN & $F_1$\\
+\midrule
+Historical & NeuroKit alone & 1,324 & 63 & 536 & 0.8155\\
+Historical & NeuroKit + forward PT veto & 276 & 24 & 1,584 & 0.2556\\
+Current & NeuroKit 300-ms baseline & 1,328 & 60 & 532 & 0.8177\\
+Current & UNSW initial event & 1,855 & 140 & 5 & 0.9624\\
+Current & UNSW refined R fiducial & 1,850 & 145 & 10 & 0.9598\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/record_207_current_metric_comparison.png}
+\caption{Current full-record audit. UNSW exchanges NeuroKit's many misses for more extra detections, greatly improving $F_1$ but not eliminating error.}
+\end{figure}
+
+\section{Why Pan--Tompkins timing changed with morphology}
+Pan--Tompkins does not directly search for a textbook upright R apex. It filters the ECG, calculates sample-to-sample change, squares that change, integrates energy over a short window, and applies adaptive thresholds \cite{pan1985qrs}. A broad, predominantly negative LBBB QRS and an upright RBBB QRS can place the maximum slope/energy and the detector's reported event at different positions within the same true QRS complex.
+
+The old rule searched only 0--100 ms after the NeuroKit event. For many LBBB beats, NeuroKit and Pan--Tompkins responded to the same genuine QRS but their markers fell outside that directional interval. The gate therefore converted correct NeuroKit detections into FN.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_207_historical_hard_gate.png}
+\caption{Historical gate failure. In this strip, NeuroKit markers lie on genuine negative QRS complexes, but the forward Pan--Tompkins timing condition rejects them.}
+\end{figure}
+
+A symmetric window is more consistent with published two-detector support work \cite{ho2024rrquality,ho2025rraccuracy}, but it does not make both outputs correct. Increasing tolerance can improve agreement while hiding timestamp bias \cite{porr2024jitter}. The old gate is rejected, not merely widened.
+
+\section{Current architecture: better events, failed positive refinement}
+The current primary is the Khamis/UNSW detector \cite{khamis2016telehealth,kristof2024qrs}. It produced 1,995 events. Before refinement, 1,855 matched expert beats. Refinement kept the event count fixed but moved five formerly matched events outside the $\pm75$-ms evaluation window, changing TP/FP/FN from 1,855/140/5 to 1,850/145/10.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_207_complete_architecture_strip.png}
+\caption{Current architecture on a negative-QRS strip. Red circles identify UNSW events lacking exactly one NeuroKit secondary event within $\pm50$ ms. The orange refinement crosses move to the highest \emph{positive} value in the search window, not the negative QRS extremum.}
+\end{figure}
+
+Median absolute timing error increased from 5.56 to 52.78 ms and the 95th percentile increased from 11.11 to 58.33 ms after positive-amplitude refinement. The cause is concrete: when the QRS is predominantly negative, maximizing positive amplitude can relocate the fiducial toward another deflection. This is an implementation failure of the refinement rule, not failure of the initial UNSW event.
+
+Original-polarity RR support was only 185 of 1,994 intervals (9.28\%). All evaluable RR intervals had mean absolute error 15.52 ms; the supported subset had 13.76 ms. A dual-polarity context run increased support coverage to 85.72\% and reduced supported-RR error to about 4.76 ms, but no automatic polarity switching was applied. Selecting polarity on this same record would be circular and could overfit its transitions.
+
+\warningbox{Architecture decision.}{Keep both orientations as context, not an automatic selector. Replace ``highest positive amplitude'' with a polarity-aware fiducial rule only after predefined validation on independent annotated records. Record 207 must remain a required stress test.}
+
+\section{Decision}
+\begin{itemize}
+\item Reject any Pan--Tompkins hard veto and any claim that disagreement equals artifact.
+\item Keep UNSW initial events; do not trust the present positive-only fiducial refinement on negative QRS complexes.
+\item Preserve morphology and polarity metadata with every RR interval.
+\item Validate any polarity-selection rule out of sample before allowing it to alter the RR stream.
+\end{itemize}
+
+\begingroup\interlinepenalty=10000
+\bibliographystyle{unsrt}
+\bibliography{MITBIH_Record_Case_Reports}
+\endgroup
+\end{document}

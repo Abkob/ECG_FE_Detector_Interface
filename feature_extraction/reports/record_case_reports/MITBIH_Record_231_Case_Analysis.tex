@@ -1,0 +1,81 @@
+\documentclass[10pt]{article}
+\input{case_report_setup}
+\title{MIT--BIH Record 231\\Conduction-Related False-Detection Case Analysis}
+\author{ECG-only seizure detector: RR--HRV branch audit}
+\date{4 August 2026}
+
+\begin{document}
+\maketitle
+
+\evidencebox{Bottom line.}{The old Pan--Tompkins veto was almost perfect on record 231, removing all 410 NeuroKit false detections while losing one true beat. The likely explanation is that NeuroKit marked intervening atrial deflections that Pan--Tompkins did not treat as QRS activity. The current UNSW primary detector reduced the problem to 11 FP, but some extra deflections are supported by the NeuroKit comparator, proving that agreement can preserve a shared error.}
+
+\section{Record profile and inference boundary}
+MIT--BIH records are approximately 30-minute, two-channel ambulatory ECGs sampled at 360 Hz with expert beat annotations \cite{moody2001mitbih,physionetmitdb,goldberger2000physiobank}. Record 231 is from a 72-year-old woman with MLII and V1 channels. The official summary documents periods of 2:1 AV block, Mobitz II block, rate-related RBBB, and a probable ventricular couplet \cite{physionetmitdb}.
+
+In 2:1 or Mobitz II block, some atrial depolarizations are not followed by ventricular depolarization. The surface ECG may therefore contain P waves between QRS complexes without a corresponding ventricular beat \cite{surawicz2009conduction}. In the audited strip, the extra detector markers fall on smaller intervening deflections. Calling them non-conducted P waves is physiologically consistent with the documented block, but the beat annotation file does not label every atrial deflection. Their exact identity remains an inference.
+
+\section{Full-record results}
+\metricdef\ \provenance
+
+\begin{table}[H]
+\centering
+\caption{Record 231 full-record results.}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Audit & Method & TP & FP & FN & $F_1$\\
+\midrule
+Historical & NeuroKit alone & 1,571 & 410 & 0 & 0.8846\\
+Historical & NeuroKit + forward PT veto & 1,570 & 0 & 1 & 0.9997\\
+Current & NeuroKit 300-ms baseline & 1,571 & 410 & 0 & 0.8846\\
+Current & UNSW initial event & 1,571 & 11 & 0 & 0.9965\\
+Current & UNSW refined R fiducial & 1,571 & 11 & 0 & 0.9965\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/record_231_current_metric_comparison.png}
+\caption{Current full-record comparison. UNSW greatly reduces the extra-detection pattern but leaves 11 FP.}
+\end{figure}
+
+\section{Why the old gate worked}
+NeuroKit marked both the large ventricular complexes and many smaller intervening deflections. Pan--Tompkins emphasizes the rapid, high-energy content of QRS complexes using filtering, differentiation, squaring, integration, and adaptive thresholds \cite{pan1985qrs}. The large QRS complexes produced Pan--Tompkins events in the accepted interval; the smaller intervening deflections generally did not. The gate therefore removed all 410 false detections while sacrificing one correct detection.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_231_historical_hard_gate.png}
+\caption{Historical experiment. Red markers fall on smaller deflections between expert ventricular beats; the right panel retains the large QRS complexes.}
+\end{figure}
+
+This result supports conduction-related discrimination in this record. It does \emph{not} show that Pan--Tompkins is a universal artifact detector. The same gate failed catastrophically on record 207 and badly on record 108.
+
+\clearpage
+\section{What the current architecture shows}
+The Khamis/UNSW primary detector \cite{khamis2016telehealth,kristof2024qrs} produced 1,582 events: all 1,571 expert beats were paired, with 11 extra events. Positive-amplitude refinement did not change these counts; it relocates events but does not classify or delete them.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_231_complete_architecture_strip.png}
+\caption{Current architecture. At about 469.3 s, the UNSW primary and NeuroKit secondary both respond to a smaller intervening deflection with no expert beat annotation. Agreement does not make it a true QRS.}
+\end{figure}
+
+The median absolute fiducial error improved from 11.11 to 0 ms and the 95th percentile from 13.89 to 2.78 ms after refinement, but all 11 extra events remained. RR support covered 1,165 of 1,581 intervals (73.69\%). Mean absolute RR error was 0.86 ms for all evaluable intervals and 0.93 ms in the supported subset. Again, the support flag did not rank timestamp accuracy monotonically.
+
+Published two-detector work motivates measuring support near each QRS and across each RR interval \cite{ho2024rrquality,ho2025rraccuracy}. Record 231 supplies the necessary counterexample: two detectors can respond to the same non-reference deflection. Support is evidence, not ground truth.
+
+\warningbox{Critical distinction.}{The extra deflections are plausibly physiological atrial activity related to AV block, not generic noise. They should be passed to a conduction/morphology context branch and excluded from the ventricular RR series only through a validated QRS decision.}
+
+\section{Decision}
+\begin{itemize}
+\item Preserve record 231 as the conduction-related false-detection regression test.
+\item Retain UNSW as the current primary candidate, while tracking its 11 residual FP.
+\item Do not revive Pan--Tompkins as a global veto despite its excellent special-case result.
+\item Pass smaller intervening-deflection evidence to the conduction branch; do not label it artifact automatically.
+\end{itemize}
+
+\begingroup\interlinepenalty=10000
+\bibliographystyle{unsrt}
+\bibliography{MITBIH_Record_Case_Reports}
+\endgroup
+\end{document}

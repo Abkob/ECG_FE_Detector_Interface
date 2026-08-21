@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecg-cascade-features"
+version = "0.4.0"
+description = "Auditable feature-extraction branches for the ECG-only seizure detector"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "matplotlib==3.10.8",
+  "neurokit2==0.2.13",
+  "numpy==2.4.2",
+  # NeuroKit2 0.2.13 declares pandas < 3.0.0.
+  "pandas==2.3.3",
+  "pyEDFlib==0.1.42",
+  "scipy==1.17.0",
+  "wfdb==4.3.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[project.scripts]
+ecg-features = "ecg_cascade.cli:main"
+ecg-rpeak-viewer = "ecg_cascade.rpeak_viewer:main"
+ecg-clinical-demo = "ecg_cascade.clinical_demo_web:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

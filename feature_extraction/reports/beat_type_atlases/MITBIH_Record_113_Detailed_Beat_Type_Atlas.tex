@@ -1,0 +1,210 @@
+\documentclass[11pt]{article}
+        \usepackage[margin=0.72in]{geometry}
+        \usepackage[T1]{fontenc}
+        \usepackage[utf8]{inputenc}
+        \usepackage{lmodern}
+        \usepackage{microtype}
+        \usepackage{graphicx}
+        \usepackage{booktabs}
+        \usepackage{tabularx}
+        \usepackage{array}
+        \usepackage{xcolor}
+        \usepackage{float}
+        \usepackage{caption}
+        \usepackage{enumitem}
+        \usepackage{fancyhdr}
+        \usepackage[numbers,sort&compress]{natbib}
+        \usepackage[colorlinks=true,linkcolor=blue!55!black,citecolor=blue!55!black,urlcolor=blue!55!black]{hyperref}
+
+        \definecolor{navy}{HTML}{163A5F}
+        \definecolor{pale}{HTML}{EEF4F9}
+        \definecolor{warning}{HTML}{FFF3CD}
+        \definecolor{rulegray}{HTML}{B8C2CC}
+        \newcommand{\auditbox}[1]{%
+          \par\smallskip\noindent
+          \fcolorbox{navy}{pale}{\parbox{0.955\linewidth}{\textbf{Detector audit.} #1}}%
+          \par\smallskip
+        }
+        \newcommand{\cautionbox}[1]{%
+          \par\smallskip\noindent
+          \fcolorbox{rulegray}{warning}{\parbox{0.955\linewidth}{\textbf{Critical limitation.} #1}}%
+          \par\smallskip
+        }
+
+        \pagestyle{fancy}
+        \fancyhf{}
+        \lhead{MIT--BIH record 113 beat-type atlas}
+        \rhead{RR--HRV front end}
+        \cfoot{\thepage}
+        \setlength{\headheight}{14pt}
+        \setlength{\parindent}{0pt}
+        \setlength{\parskip}{4.5pt}
+        \setlist[itemize]{leftmargin=1.2em,itemsep=2pt,topsep=3pt}
+        \captionsetup{font=small,labelfont=bf}
+
+        \title{\textbf{MIT--BIH Record 113: Detailed Beat-Type Atlas}\\[0.35em]
+        \large Expert labels, physiological interpretation, and current QRS-detection audit}
+        \author{ECG-only seizure detector project}
+        \date{4 August 2026}
+
+        \begin{document}
+        \maketitle
+
+        \begin{center}
+        \fcolorbox{navy}{pale}{\parbox{0.91\textwidth}{
+        \textbf{The central distinction.} The symbols in this report are expert WFDB beat annotations.
+        The current RR--HRV front end detects QRS/R events and measures detector agreement; it does
+        \emph{not} predict these beat classes. Therefore ``QRS detected'' is never rewritten as
+        ``beat type classified correctly,'' and detector disagreement is never automatically called artifact.
+        }}
+        \end{center}
+
+        \section{Record, data, and selection rule}
+
+        The MIT--BIH Arrhythmia Database contains 48 two-lead ambulatory ECG recordings with expert-reviewed
+        beat annotations \cite{goldberger2000physiobank,moody2001mitbih,physionetmitdb}. Record 113 is
+        a 30-minute, 360-Hz recording from a 24-year-old woman with MLII and V1. The official notes describe predominantly normal sinus rhythm with rate variation possibly caused by a wandering atrial pacemaker, and no special noise warning. The figures use the upper MLII lead.
+
+        The beat labels audited here are \texttt{N} ($n=1,789$), \texttt{a} ($n=6$). For each label, the displayed target is the chronologically
+        middle occurrence after excluding only the 1.5-second file edges. This deterministic rule does not
+        select the best-looking or best-detected beat. The comparison comes from another MIT--BIH record with
+        the same expert symbol, so the report shows real published variability rather than an invented ideal.
+
+        \subsection{Current detector path and marker meanings}
+
+        The primary event detector is the Khamis/UNSW QRS detector; the NeuroKit gradient detector supplies
+        secondary context \cite{khamis2016telehealth,makowski2021neurokit,kristof2024qrs}. The selected
+        output is the original-polarity UNSW event refined to the highest positive amplitude within $\pm50$~ms.
+        The inverted-polarity result is shown as context only and cannot silently replace the selected timestamp.
+        A primary event is called supported when exactly one secondary event lies within $\pm50$~ms. Expert
+        matching uses a separate one-to-one $\pm75$-ms audit tolerance.
+
+        In each target panel: the red-edged diamond is the selected expert annotation; gray diamonds and labels
+        are neighboring expert beats; the teal triangle is the initial UNSW event; the orange cross is the
+        selected refined R timestamp; the purple plus-shaped marker is inverted-path context; and black baseline
+        ticks are NeuroKit-gradient context. None of those detector markers is a beat-class prediction.
+
+        \cautionbox{The $\pm75$-ms audit tolerance defines this project's matching experiment; it is not an
+        industry declaration that any timestamp inside the window is an exact R-wave fiducial. A wide tolerance
+        can hide timing jitter that matters to RR and HRV. Exact raw timing errors are therefore retained.}
+
+        \clearpage
+        \section{Full-record QRS-detection audit by expert label}
+
+        \begin{table}[H]
+        \centering
+        \caption{Selected refined R timestamps versus all expert annotations of each requested label.}
+        \small
+        \begin{tabularx}{\textwidth}{lXrrrr}
+        \toprule
+        Symbol & Official meaning & Expert $n$ & Matched/$n$ & Sensitivity & 95\% Wilson interval \\
+        \midrule
+        \texttt{N} & Expert reference label for a normal beat. & 1,789 & 1,788/1,789 & 99.94\% & 99.68--99.99\% \\
+\texttt{a} & Expert reference label for an aberrated atrial premature beat. & 6 & 6/6 & 100.00\% & 60.97--100.00\% \\
+        \bottomrule
+        \end{tabularx}
+        \end{table}
+
+        \begin{figure}[H]
+        \centering
+        \includegraphics[width=0.93\textwidth]{figures/record_113_symbol_sensitivity.png}
+        \caption{The interval width, not just the point estimate, exposes how little rare labels establish.
+        Intervals use the Wilson score method \cite{wilson1927probable}.}
+        \end{figure}
+
+        The full-record initial UNSW result was TP=1,794, FP=1,
+        FN=1, and $F_1=0.99944$. After the current positive-amplitude
+        fiducial refinement it was TP=1,794, FP=1,
+        FN=1, and $F_1=0.99944$. Per-label sensitivity allocates
+        matched expert beats to their symbols; false-positive detector events have no expert symbol and therefore
+        cannot be represented by sensitivity alone. This table is not a beat-classification confusion matrix.
+
+        \subsection{Exact selected-example audit}
+        \begin{table}[H]
+        \centering
+        \caption{Timing results for the deterministic displayed examples. Errors are detector minus expert.}
+        \resizebox{\textwidth}{!}{%
+        \begin{tabular}{lrrrrrrrrl}
+        \toprule
+        Expert & Sample & Time (s) & Initial error (ms) & Selected R error (ms) & Supported? & Inverted R error (ms) & QRS detected? & Beat class output \\
+        \midrule
+        \texttt{N} & 331,431 & 920.642 & $+5.6$ & $0.0$ & Yes & $+16.7$ & Yes & Not produced \\
+\texttt{a} & 146,714 & 407.539 & $+5.6$ & $0.0$ & Yes & $+36.1$ & Yes & Not produced \\
+        \bottomrule
+        \end{tabular}}
+        \end{table}
+
+        \subsection{Record-specific critical reading}
+        \begin{itemize}
+        \item The selected output matched all six expert a beats, but the 95\% Wilson interval remains 60.97--100.00\%. Six observations do not establish robust aberrated-atrial-beat generalization.
+\item The official record has no special noise warning. Successful QRS localization here therefore tests clean morphology more than severe artifact tolerance.
+\item Both displayed selected refined timestamps are exact at the 360-Hz sample grid, while the inverted path is later. This supports the selected polarity for these examples only, not an automatic global routing rule.
+        \end{itemize}
+
+        \clearpage
+\section{\texttt{N}: normal beat}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/record_113_N_comparison.png}
+\caption{Left: the chronologically middle expert \texttt{N} occurrence in record 113
+(sample 331,431, 920.642~s), with current detector outputs. Right: an independent
+published MIT--BIH record 100 occurrence carrying the same expert symbol. Neighboring
+reference symbols are shown to preserve rhythm context \cite{moody2001mitbih,physionetmitdb}.}
+\end{figure}
+
+\textbf{Official symbol meaning.} Expert reference label for a normal beat.
+
+\textbf{Why this type occurs and what tends to shape the waveform.} A sinus impulse normally depolarizes the atria first, producing the P wave, then reaches the ventricles through the AV node and His--Purkinje system, producing the QRS; ventricular repolarization produces the T wave \cite{kligfield2007standardization,surawicz2009conduction}. The database symbol describes the expert beat class. It does not require the largest QRS deflection to point upward in every lead.
+
+\textbf{How to read the two strips.} Polarity and amplitude depend on the projection of the cardiac electrical vector onto the selected lead. A negative or biphasic complex may therefore still carry an expert normal-beat label. The comparison strip demonstrates allowed appearance variation; it is not a universal template. The right-hand strip is not a
+synthetic textbook ideal and was not selected as a detector success; it is another expert-labeled
+observation from the published database. Similar labels can legitimately have different waveforms.
+
+\auditbox{For the deterministic middle N example, the UNSW initial event was $+5.6$~ms from the expert annotation; the selected original-polarity refined timestamp was $0.0$~ms away and was within the predefined $\pm75$-ms audit tolerance. Exact NeuroKit-gradient support within $\pm50$~ms of the primary QRS event was yes. The inverted-context refined timestamp was $+16.7$~ms away. Across the full record, the selected refined output matched 1788 of 1789 expert N annotations. This is QRS localization, not beat-type classification.}
+
+\cautionbox{A single-lead waveform cannot establish that the entire 12-lead ECG is normal, and QRS detection cannot establish the N class.}
+\clearpage
+\section{\texttt{a}: aberrated atrial premature beat}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/record_113_a_comparison.png}
+\caption{Left: the chronologically middle expert \texttt{a} occurrence in record 113
+(sample 146,714, 407.539~s), with current detector outputs. Right: an independent
+published MIT--BIH record 201 occurrence carrying the same expert symbol. Neighboring
+reference symbols are shown to preserve rhythm context \cite{moody2001mitbih,physionetmitdb}.}
+\end{figure}
+
+\textbf{Official symbol meaning.} Expert reference label for an aberrated atrial premature beat.
+
+\textbf{Why this type occurs and what tends to shape the waveform.} The impulse is premature and atrial, but part of the ventricular conduction system is still refractory. Ventricular activation therefore follows a bundle-branch or fascicular-block pattern, widening or changing the QRS even though the origin is supraventricular \cite{samesima2022ecg,escudero2021wide}.
+
+\textbf{How to read the two strips.} This label illustrates why `wide' does not automatically mean ventricular. The timing of the early atrial impulse, any altered P wave, and the relationship to neighboring cycles help distinguish aberrancy from a PVC. The right-hand strip is not a
+synthetic textbook ideal and was not selected as a detector success; it is another expert-labeled
+observation from the published database. Similar labels can legitimately have different waveforms.
+
+\auditbox{For the deterministic middle a example, the UNSW initial event was $+5.6$~ms from the expert annotation; the selected original-polarity refined timestamp was $0.0$~ms away and was within the predefined $\pm75$-ms audit tolerance. Exact NeuroKit-gradient support within $\pm50$~ms of the primary QRS event was yes. The inverted-context refined timestamp was $+36.1$~ms away. Across the full record, the selected refined output matched 6 of 6 expert a annotations. This is QRS localization, not beat-type classification.}
+
+\cautionbox{There are only six such annotations in record 113. Detection of their QRS complexes is not evidence that the architecture can distinguish a from V. The local denominator is only 6; always report the raw 6/6 rather than presenting the percentage alone.}
+
+        \clearpage
+        \section{Conclusions for record 113}
+        \begin{enumerate}
+        \item This report validates QRS-event localization against expert timestamps. It does not validate
+        normal, atrial, ventricular, conduction-pattern, or junctional classification;
+        seizure detection; or artifact detection.
+        \item The full raw denominators and Wilson intervals must accompany percentages. A 100\% result with
+        one or two beats remains weak evidence.
+        \item The independent comparison strips show that one expert label can have multiple lead-dependent
+        shapes. Template resemblance alone is not ground truth.
+        \item Original and inverted refinements are both displayed because morphology and polarity can move the
+        chosen positive maximum. The inverted path remains context until a routing rule is prospectively specified
+        and independently validated.
+        \item Detector support is a reliability measurement, not a veto and not an artifact label. Expert
+        annotations remain the evaluation reference.
+        \end{enumerate}
+
+        \bibliographystyle{unsrtnat}
+        \bibliography{MITBIH_Beat_Type_Atlases}
+        \end{document}

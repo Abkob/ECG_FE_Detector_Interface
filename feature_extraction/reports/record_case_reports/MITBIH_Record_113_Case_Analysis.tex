@@ -1,0 +1,84 @@
+\documentclass[10pt]{article}
+\input{case_report_setup}
+\title{MIT--BIH Record 113\\T-Wave Double-Detection Case Analysis}
+\author{ECG-only seizure detector: RR--HRV branch audit}
+\date{4 August 2026}
+
+\begin{document}
+\maketitle
+
+\evidencebox{Bottom line.}{Record 113 is the clearest proof that detector failure is not the same as physical artifact. NeuroKit detected almost every expert beat but added 1,039 extra events on a record without a special noise warning. The old Pan--Tompkins veto solved this particular pattern, while the current UNSW primary detector achieved 1 FP and 1 FN. However, the present two-detector RR-support rule still marked most RR intervals unsupported because its NeuroKit secondary stream produced extra events.}
+
+\section{Record and evidence status}
+The MIT--BIH database records are approximately 30 minutes long, have two ECG channels sampled at 360 Hz, and include expert beat annotations \cite{moody2001mitbih,physionetmitdb,goldberger2000physiobank}. Record 113 is from a 24-year-old woman with MLII and V1 channels. The official summary describes predominantly normal sinus rhythm with rate variation possibly due to a wandering atrial pacemaker and gives no special noise warning \cite{physionetmitdb}.
+
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{0.22\linewidth}X@{}}
+Observed & NeuroKit false candidates repeatedly lie on broad post-QRS waves in the displayed strip.\\
+Measured & Their delay from the preceding expert QRS was approximately 306--356 ms in the audited example.\\
+Inference & Timing and shape are consistent with T-wave double detection. The expert file does not label every T wave, so ``T wave'' is a supported interpretation, not annotation ground truth.\\
+Rejected claim & These extra events do not prove motion artifact, electrode artifact, or seizure-related morphology.\\
+\end{tabularx}
+
+\section{Full-record results}
+\metricdef\ \provenance
+
+\begin{table}[H]
+\centering
+\caption{Record 113 full-record results.}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Audit & Method & TP & FP & FN & $F_1$\\
+\midrule
+Historical & NeuroKit alone & 1,794 & 1,039 & 1 & 0.7753\\
+Historical & NeuroKit + forward PT veto & 1,793 & 0 & 2 & 0.9994\\
+Current & NeuroKit 300-ms baseline & 1,794 & 1,039 & 1 & 0.7753\\
+Current & UNSW initial event & 1,794 & 1 & 1 & 0.9994\\
+Current & UNSW refined R fiducial & 1,794 & 1 & 1 & 0.9994\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/record_113_current_metric_comparison.png}
+\caption{Current full-record audit. NeuroKit's error is overwhelmingly false-positive double detection, not missed QRS complexes.}
+\end{figure}
+
+\section{Why the old Pan--Tompkins gate worked here}
+Pan--Tompkins emphasizes rapid, high-energy QRS activity using band-pass filtering, a derivative, squaring, moving-window integration, and adaptive signal/noise thresholds \cite{pan1985qrs}. In this record its QRS event followed the genuine NeuroKit R-peak candidate within the tested 0--100-ms interval. The later broad wave occurred after that Pan--Tompkins QRS event had passed, so the false NeuroKit candidate received no new Pan--Tompkins support.
+
+Consequently, 1,793 of 1,794 true NeuroKit detections passed while none of the 1,039 false detections passed. This is a highly successful \emph{record-specific} T-wave rejection result, not validation of the gate for other morphologies.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_113_historical_hard_gate.png}
+\caption{Historical experiment. Red crosses in the left panel recur on broad post-QRS waves; the Pan--Tompkins veto removes them in the right panel.}
+\end{figure}
+
+\clearpage
+\section{The complete architecture exposes a new problem}
+The Khamis/UNSW primary detector \cite{khamis2016telehealth,kristof2024qrs} removed the double-detection failure at the QRS-output level. Initial and refined outputs both had 1 FP and 1 FN. The displayed refined crosses align with expert QRS times.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_113_complete_architecture_strip.png}
+\caption{Current architecture. Purple ticks show the NeuroKit secondary stream. It often emits one event at the QRS and another on the following broad wave.}
+\end{figure}
+
+The two-detector RR rule was adapted from published work requiring support around both interval boundaries and the expected secondary-event count \cite{ho2024rrquality,ho2025rraccuracy}. Here only 634 of 1,794 RR intervals were supported (35.34\% coverage), despite primary-detector $F_1=0.9994$. All evaluable RR intervals had mean absolute error 1.37 ms, and the supported subset had 1.36 ms. Therefore the low coverage did \emph{not} identify a poor primary RR series; it mainly reflected contamination of the secondary detector by extra waves.
+
+\warningbox{Critical architecture finding.}{A reliability rule is only as useful as its comparator. On record 113, a strong primary detector plus a weak secondary detector produces an over-conservative RR-quality label. The quality output must preserve its reason code (extra secondary events) rather than collapsing to ``artifact.''}
+
+\section{Decision}
+\begin{itemize}
+\item Keep record 113 as the mandatory T-wave double-detection regression test.
+\item Retain UNSW as the primary detector candidate.
+\item Do not use NeuroKit secondary disagreement as a hard veto or as an artifact label.
+\item Re-audit a comparator with explicit T-wave discrimination before using two-detector coverage to exclude HRV windows.
+\end{itemize}
+
+\begingroup\interlinepenalty=10000
+\bibliographystyle{unsrt}
+\bibliography{MITBIH_Record_Case_Reports}
+\endgroup
+\end{document}

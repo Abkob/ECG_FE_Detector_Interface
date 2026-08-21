@@ -1,0 +1,87 @@
+\documentclass[10pt]{article}
+\input{case_report_setup}
+\title{MIT--BIH Record 108\\R-Peak and RR-Reliability Case Analysis}
+\author{ECG-only seizure detector: RR--HRV branch audit}
+\date{4 August 2026}
+
+\begin{document}
+\maketitle
+
+\evidencebox{Bottom line.}{The old forward-only Pan--Tompkins hard gate failed on record 108: it rejected many correct NeuroKit peaks while retaining most NeuroKit false positives. The current UNSW primary detector reduced the full-record error burden to 7 FP and 6 FN, but 20.6\% of its RR intervals still lacked the prescribed two-detector reliability support.}
+
+\section{What record 108 contains}
+The MIT--BIH Arrhythmia Database contains approximately 30-minute, two-channel ambulatory ECG records digitized at 360 samples/s with expert beat annotations \cite{moody2001mitbih,physionetmitdb,goldberger2000physiobank}. Record 108 is from an 87-year-old woman. Its channels are MLII and V1. The database documentation lists borderline first-degree AV block, sinus arrhythmia, multiform premature ventricular complexes, and considerable noise and baseline shift in the lower V1 channel \cite{physionetmitdb}.
+
+This audit used the \emph{upper MLII channel}. Therefore the database's warning about the lower V1 channel cannot, by itself, explain an error measured in MLII. Calling every disagreement ``artifact'' would be unsupported.
+
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}p{0.22\linewidth}X@{}}
+Sampling & 360 Hz; one sample is 2.78 ms.\\
+Reference & MIT--BIH \texttt{atr} beat annotations; symbols identify beat classes, not detector correctness.\\
+Primary question & Does a second QRS detector safely validate NeuroKit detections, and does the replacement primary detector improve the result?\\
+Interpretation limit & One annotated database record is a detector case study, not evidence of seizure detection or patient-generalized performance.\\
+\end{tabularx}
+
+\section{Full-record detector results}
+\metricdef\ \provenance
+
+\begin{table}[H]
+\centering
+\caption{Record 108 full-record results.}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Audit & Method & TP & FP & FN & $F_1$\\
+\midrule
+Historical & NeuroKit alone & 1,563 & 181 & 200 & 0.891\\
+Historical & NeuroKit + forward PT veto & 758 & 161 & 1,005 & 0.565\\
+Current & NeuroKit 300-ms baseline & 1,564 & 181 & 199 & 0.8917\\
+Current & UNSW initial event & 1,757 & 7 & 6 & 0.9963\\
+Current & UNSW refined R fiducial & 1,757 & 7 & 6 & 0.9963\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/record_108_current_metric_comparison.png}
+\caption{Current full-record comparison. Error counts, rather than $F_1$ alone, show the type of failure.}
+\end{figure}
+
+\section{Why the old hard gate failed}
+The tested rule retained a NeuroKit peak only when a Pan--Tompkins event occurred 0--100 ms \emph{after} it. Pan--Tompkins detects QRS energy through filtering, differentiation, squaring, moving-window integration, and adaptive thresholds \cite{pan1985qrs}; it is not an expert label and its event time need not equal the R-wave apex. Here the direction and width of the gate were mismatched to many true beats.
+
+The gate retained only $758/1{,}563=48.5\%$ of NeuroKit's true detections but retained $161/181=89.0\%$ of its false detections. It therefore selected the wrong subset: FN increased from 200 to 1,005 while FP fell by only 20.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_108_historical_hard_gate.png}
+\caption{Historical hard-gate experiment. The same strip is plotted twice. Orange triangles in the right panel are expert beats lost by the 0--100-ms forward veto.}
+\end{figure}
+
+Published two-detector RR-quality work has used symmetric support around a primary event rather than this forward-only veto \cite{ho2024rrquality,ho2025rraccuracy}. That supports testing bidirectional timing, but it does not prove that a wider gate is correct: broad tolerances can hide clinically relevant timestamp error \cite{porr2024jitter}. Detector agreement is context, not ground truth.
+
+\section{What the complete architecture changed}
+The current branch uses the Khamis/UNSW detector as the primary QRS-event source \cite{khamis2016telehealth,kristof2024qrs}. NeuroKit's gradient detector remains a secondary context stream, and the initial event is refined to the highest positive amplitude within $\pm50$ ms. A primary event is ``supported'' only when exactly one secondary event is inside $\pm50$ ms. An RR interval is supported only when both boundary events are supported and exactly two secondary events occur across the expanded RR span, following the published two-detector structure \cite{ho2024rrquality,ho2025rraccuracy}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{figures/record_108_complete_architecture_strip.png}
+\caption{Current architecture on an explanatory strip. Diamonds are expert beats; triangles and crosses are detector outputs. Their vertical separation can reflect fiducial conventions in a biphasic complex; matching is performed in time, not amplitude.}
+\end{figure}
+
+Across the full record, 1,400 of 1,763 output RR intervals were supported (coverage 79.41\%). The mean absolute RR error among all evaluable intervals was 17.46 ms; among supported evaluable intervals it was 12.33 ms. Support enriched for lower RR error, but did not make the timestamps exact.
+
+\warningbox{Remaining concern.}{The current detector is excellent on this annotated record but is not yet validated on peri-ictal ECG. Before HRV features are trusted, representative patient ECG must be manually annotated and performance stratified by rhythm, morphology, noise, and heart rate.}
+
+\section{Decision for the RR--HRV branch}
+\begin{itemize}
+\item Reject the 0--100-ms forward Pan--Tompkins hard veto.
+\item Retain UNSW initial QRS events as the current primary candidate for this record.
+\item Retain detector support and RR coverage as numerical context; do not label unsupported intervals ``artifact'' automatically.
+\item Keep the R-fiducial refinement under audit, even though it did not change record-level counts here.
+\end{itemize}
+
+\begingroup\interlinepenalty=10000
+\bibliographystyle{unsrt}
+\bibliography{MITBIH_Record_Case_Reports}
+\endgroup
+\end{document}

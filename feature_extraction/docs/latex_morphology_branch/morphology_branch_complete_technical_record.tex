@@ -1,0 +1,1709 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=22mm,headheight=15pt]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,longtable,tabularx,array,multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{pdflscape}
+
+\definecolor{navy}{HTML}{17365D}
+\definecolor{bluegray}{HTML}{E9EFF6}
+\definecolor{green}{HTML}{176B3A}
+\definecolor{amber}{HTML}{9A5B00}
+\definecolor{red}{HTML}{9E2A2B}
+\definecolor{gray}{HTML}{5B6573}
+\definecolor{lightgray}{HTML}{F4F5F7}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=navy,
+  urlcolor=navy,
+  citecolor=navy,
+  pdftitle={Morphology Branch Complete Technical Record},
+  pdfauthor={ECGdetector project}
+}
+\urlstyle{same}
+\setlist{nosep,leftmargin=1.6em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\renewcommand{\arraystretch}{1.12}
+\sloppy
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{ECGdetector morphology branch}
+\rhead{Complete technical record}
+\cfoot{\thepage}
+
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{lightgray},
+  frame=single,
+  framerule=0.2pt,
+  rulecolor=\color{gray},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+\lstset{style=code}
+
+\newcommand{\implemented}{\textcolor{green}{\textbf{IMPLEMENTED}}}
+\newcommand{\testednegative}{\textcolor{red}{\textbf{TESTED NEGATIVE}}}
+\newcommand{\deferred}{\textcolor{amber}{\textbf{DEFERRED}}}
+\newcommand{\proposed}{\textcolor{navy}{\textbf{PROPOSED}}}
+\newcommand{\notdone}{\textcolor{gray}{\textbf{NOT DONE}}}
+\newcommand{\pathcode}[1]{\texttt{\detokenize{#1}}}
+
+\title{\textbf{Morphology Branch: Complete Technical Record}\\
+\large Architecture, exact implementations, trials, errors, results, rejected ideas, and next experiments}
+\author{ECGdetector project}
+\date{State frozen for documentation: 19 August 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document freezes the complete morphology-branch study to date. It records what was proposed, what was implemented, what was tested, what failed, what remains deferred, and what has not yet been evaluated. It includes the original Varon five-QRS Gram-eigenvalue control, the newly implemented Varon-2015 80-beat PRSA/BPRSA autonomic lane, detector-to-feature fidelity on all 48 MIT-BIH Arrhythmia Database records, manual-boundary evidence from LUDB and QTDB, NeuroKit DWT/CWT and prominence delineation gates, the failed patient-average-width proposal, the corrected patient-specific symmetric-width calibration, the separately calibrated asymmetric P95-window experiment, and the patient/lead-specific full-cycle template bank with derivative dynamic time warping. It also specifies lead and polarity rules, the relationship to the independent RR/HRV branch, software failures encountered, exact output files, tests, limitations, and the causal evaluation plan.
+
+This is a feature-extraction study. None of the morphology lanes currently produces a seizure probability, and none of the reported landmark, capture, or template results is seizure-detection accuracy.
+\end{abstract}
+
+\tableofcontents
+\listoftables
+\listoffigures
+\clearpage
+
+\section{How to read this record}
+
+The status labels have literal meanings:
+
+\begin{center}
+\begin{tabularx}{\textwidth}{>{\bfseries}p{0.22\textwidth}X}
+\toprule
+Label & Meaning \\
+\midrule
+\implemented & Code exists in the repository and has software tests or a real-data execution. \\
+\testednegative & The exact idea was implemented and evaluated, and the result argues against using it as the default. The code and outputs are intentionally retained. \\
+\proposed & A concrete idea supported by reasoning or literature, but not yet implemented. \\
+\deferred & Considered but intentionally postponed, usually because it requires a learned model or a different toolchain. \\
+\notdone & Required evidence or integration does not yet exist. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+All percentages, timing errors, counts, and feature-agreement statistics in this report come from the saved machine-readable outputs named in Section~\ref{sec:reproduction}. Rounded table entries are for readability; the CSV files retain full precision.
+
+\section{Executive decision and current architecture}
+
+The current morphology branch is not one algorithm. It is a set of separately auditable lanes that share beat anchors but answer different questions:
+
+\begin{enumerate}
+  \item \textbf{Frozen Varon control:} a fixed 120-ms, five-QRS, uncentered Gram eigenspectrum, retained because it is the seizure-specific published control \cite{varon2015}.
+  \item \textbf{Patient-specific Varon window challengers:} the same five-beat eigenspectrum with causally calibrated patient/lead crop geometry. The arithmetic-mean-total-duration version is a negative result; the corrected symmetric required-width P95 remains the coverage-focused challenger; the new separate pre/post-R P95 crop is a more crop-efficient experimental alternative that needs more than a few calibration beats.
+  \item \textbf{Patient/lead full-cycle template bank:} full midpoint-bounded cardiac cycles, separate pre-R and post-R resampling, patient-specific median templates, correlation, raw and normalized residuals, previous-beat change, and derivative-DTW.
+  \item \textbf{Interpretable prominence P--QRS--T lane:} deterministic delineation followed by durations, intervals, signed amplitudes, QRS area, polarity, missingness, completeness, and physiological-order flags.
+  \item \textbf{Complementary Varon PRSA/BPRSA autonomic lane:} an 80-beat, step-one phase-rectified average of RR accelerations and R-amplitude-triggered RR responses. It is not morphology and is not merged invisibly into the morphology lanes; it is time-aligned beside the existing 100-RR Jeppesen/Poincar\'e lane.
+\end{enumerate}
+
+The architecture deliberately preserves the original control and adds challengers beside it:
+
+\begin{center}
+\fcolorbox{navy}{bluegray}{\begin{minipage}{0.93\textwidth}
+\textbf{Shared causal input:} one patient, one known lead configuration, ECG samples, and explicit R anchors.\\[0.35em]
+\textbf{RR/HRV branch:} 100-RR Jeppesen/Poincar\'e timing features $+$ 80-beat Varon PRSA/BPRSA acceleration and ECG-derived cardiorespiratory-coupling features.\\
+\textbf{Morphology branch:}
+fixed Varon control $+$ symmetric/asymmetric patient-window challengers $+$ full-cycle template bank $+$ prominence P--QRS--T features.\\[0.35em]
+\textbf{Later feature matrix:} retain lane identity and missingness; compare each lane alone and in explicit combinations. No seizure classifier is currently part of these extractors.
+\end{minipage}}
+\end{center}
+
+The full-cycle representation is morphology because it compares ECG waveform shape over the P wave, QRS complex, ST segment, and T wave. RR duration is stored separately and is not allowed to masquerade as shape after resampling.
+
+\section{Question being studied}
+
+The scientific question is whether patient-specific, lead-controlled ECG waveform geometry adds useful preictal or seizure information beyond RR/HRV timing. The branch must distinguish five different sources of change:
+
+\begin{itemize}
+  \item true cardiac morphology change;
+  \item ordinary within-patient rhythm or ectopic morphology;
+  \item lead/electrode placement or polarity change;
+  \item R-anchor timing error;
+  \item noise or motion artifact.
+\end{itemize}
+
+For that reason, detector fidelity, QRS-boundary coverage, landmark timing, lead identity, polarity, missingness, and template novelty must remain visible. A low template correlation is a measurement; it is not automatically labeled seizure, artifact, PVC, or bundle-branch block.
+
+\section{Dataset roles, ground truth, and lead policy}
+\label{sec:datasets}
+
+\subsection{What ground truth exists}
+
+\begingroup
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{p{0.16\textwidth}p{0.17\textwidth}p{0.21\textwidth}p{0.20\textwidth}p{0.18\textwidth}}
+\caption{Dataset roles and the exact ground-truth limitation.}\\
+\toprule
+Dataset & Scope used & Available ground truth & Valid use in this branch & What it cannot prove \\
+\midrule
+\endfirsthead
+\toprule
+Dataset & Scope used & Available ground truth & Valid use in this branch & What it cannot prove \\
+\midrule
+\endhead
+MIT-BIH Arrhythmia Database & All 48 records for detector/Varon fidelity; records 100 and 207 for template executions & Expert beat annotations and beat symbols; 48 half-hour two-channel records; 109,494 annotated beats in the all-record audit & R-anchor timing, beat detection, five-beat coverage, propagation into Varon features, morphology-template stress with arrhythmias & It does not provide complete manual P/QRS/T boundaries or seizure labels \\
+LUDB & All 200 records, lead II, 500 Hz & Manual per-lead P, QRS, and T landmarks; 1,817 complete QRS onset/R/offset triplets in the capture audit & Matched-lead delineation accuracy, polarity stratification, fixed and personalized boundary capture & Short recordings provide few causal calibration/test beats per subject; no seizures \\
+QT Database & Twelve records whose annotated channel 0 is MLII, 250 Hz; selected second-pass manual \texttt{q1c} beats & Manual landmarks on selected beats; 462 complete QRS triplets in this matched subset & Independent matched-lead boundary and width validation & Sparse T-onset ground truth: only 31 references in this scope; no seizures \\
+Installed seizure EDFs & CHB04\_28 at 256 Hz; five PN06 records and three PN12 records at 512 Hz, with seizure intervals & Seizure timing intervals & CHB04\_28 was used for an exploratory two-seizure PRSA/BPRSA execution and detector-support audit & No manual R peaks, QRS boundaries, or full P--QRS--T boundary truth; the exploratory feature separation cannot establish seizure accuracy \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+Manual landmarks are human reference sample positions such as QRS onset or T offset. Algorithmic landmarks are the positions predicted by a delineator. A predicted landmark is not ``manual'' merely because it is aligned with a manually annotated R peak.
+
+\subsection{Lead and polarity policy}
+
+Lead choice materially changes polarity, amplitude, QRS shape, P/T visibility, and sometimes fiducial timing. The branch therefore uses these rules:
+
+\begin{enumerate}
+  \item Calibration and evaluation for a patient template or personalized width must use the same named lead and electrode configuration.
+  \item LUDB evaluation uses lead II. The matched QTDB subset uses channel 0 only where the header identifies it as MLII.
+  \item MIT-BIH channel 0 is commonly MLII but not universally so; the record header label is authoritative. ``Channel 0'' must not be treated as a universal lead name.
+  \item Polarity is preserved. The pipeline does not silently multiply a signal by $-1$ to make R positive.
+  \item A known lead/electrode change requires a new template state or explicit quarantine. Templates from different leads are never pooled as if they were one baseline.
+\end{enumerate}
+
+The original Varon Gram eigenvalues are invariant to a global sign flip because $(-Q)(-Q)^T=QQ^T$. Signed P/R/T amplitudes, QRS area, correlation against a non-flipped template, and prominence delineation are not sign invariant. Therefore sign invariance in one lane does not justify ignoring lead identity elsewhere.
+
+The new PRSA lane uses RR as both driver and target, so it is invariant to ECG amplitude sign and unchanged when only the lead waveform is multiplied by $-1$. BPRSA uses R-peak amplitude as its ECG-derived respiration driver. A polarity inversion reverses which respiratory phase satisfies the decreasing-anchor rule; a lead change can alter amplitude modulation itself. BPRSA therefore requires a named, stable lead/polarity state even though RR-only PRSA does not.
+
+The LUDB polarity audit found 15 lead-II records with negative- or mixed-dominant QRS morphology. For DWT QRS onset, the positive-dominant group achieved 95.6\% sensitivity, 99.0\% PPV, 28-ms median absolute error, and 122-ms P95 absolute error. The negative/mixed group fell to 75.8\% sensitivity, 87.9\% PPV, 72-ms median absolute error, and 133.5-ms P95 error. This is direct evidence for lead-aware, polarity-preserving evaluation.
+
+\section{Metrics in plain language}
+\label{sec:metrics}
+
+Within a one-to-one matching tolerance, a true positive (TP) is one prediction matched to one reference; a false negative (FN) is a reference that the method missed; and a false positive (FP) is a prediction without a matching reference.
+
+\begin{align}
+\text{Sensitivity} &= \frac{TP}{TP+FN},\\
+\text{PPV} &= \frac{TP}{TP+FP},\\
+F_1 &= \frac{2\,\text{Sensitivity}\,\text{PPV}}
+{\text{Sensitivity}+\text{PPV}}.
+\end{align}
+
+Sensitivity asks, ``Of all manual landmarks that existed, how many did the algorithm find?'' PPV asks, ``Of all landmarks the algorithm claimed, how many corresponded to a manual landmark?'' A method can have high PPV and poor sensitivity by returning only a small number of very safe predictions. That pattern occurred for CWT QRS boundaries.
+
+Timing error is predicted sample time minus manual reference time. Median absolute error describes the typical magnitude. P95 absolute error exposes the tail: 95\% of matched errors are no larger than that value. The delineation audit used a deliberately broad 150-ms one-to-one tolerance so that coverage and error distributions could be measured; it is an audit tolerance, not a claim that 150 ms is clinically acceptable.
+
+For detector-to-Varon propagation, five-beat window coverage is the fraction of expert five-beat windows for which every required candidate beat was matched. Concordance correlation coefficient (CCC) measures agreement in both correlation and scale. Symmetric mean absolute percentage error (SMAPE) measures relative disagreement. The exploratory normalized-spectrum $L_1$ error compares eigenvalue fractions and removes total energy; it is not part of the published Varon feature.
+
+\section{Varon-2015 PRSA/BPRSA complementary autonomic lane}
+\label{sec:prsa}
+
+Status: \implemented. The deterministic feature extractor, clinical-demo
+integration, matrix/CSV join, software tests, all-48 MIT-BIH expert-anchor
+audit, difficult-record lead/polarity audit, and exploratory CHB04\_28
+execution now exist. The kernel spectral clustering classifier from the paper
+is deliberately not implemented.
+
+\subsection{Why this is beside morphology rather than inside it}
+
+Varon et al.\ evaluated two method families: five-QRS morphology and
+phase-rectified signal averaging \cite{varon2015}. PRSA describes organized
+heart-rate acceleration patterns. BPRSA describes the RR response aligned to
+changes in the R-peak-amplitude ECG-derived respiration surrogate. These are
+autonomic/timing and cardiorespiratory-coupling measurements, not conduction
+or waveform-shape features. They therefore complement the morphology lanes and
+the existing 100-RR Jeppesen/Poincar\'e lane; they do not replace either.
+
+\subsection{Exact causal implementation}
+
+The public functions are
+\pathcode{calculate_prsa_bprsa_feature_arrays} and
+\pathcode{extract_prsa_bprsa_features} in
+\pathcode{src/ecg_cascade/prsa_bprsa.py}. For every R peak after the first,
+the implementation constructs a positive RR interval in milliseconds, its
+ending timestamp, and the oriented lead amplitude sampled at that R peak:
+\[
+RR_i=1000\frac{R_i-R_{i-1}}{f_s},\qquad
+R_{\mathrm{amp},i}=x[R_i].
+\]
+The requested orientation is explicit and the resulting amplitude sign is
+preserved. No patient calibration is applied. A moving window contains the
+latest 80 RR-defined beats, moves by one beat, and overlaps its predecessor by
+79 beats. Warm-up rows 1--79 are retained with missing PRSA/BPRSA features.
+
+Within each 80-beat window, RR and $R_{\mathrm{amp}}$ are independently
+resampled to 4 Hz. The paper specifies 4-Hz resampling but does not state an
+interpolation boundary convention \cite{varon2015}. This repository therefore
+records its explicit implementation choice: SciPy \texttt{CubicSpline} with
+the default not-a-knot boundary condition. The spline is recomputed from only
+the current causal 80-beat window; appending future beats cannot change an
+earlier row.
+
+For a driver sequence $D$ and target $T$, decreasing samples are anchor points:
+\[
+\mathcal{A}=\{i:D_i<D_{i-1}\}.
+\]
+An anchor is usable only if the complete $L=20$ sample neighborhood exists on
+both sides. Each retained target segment contains $2L+1=41$ samples, or
+$\pm5$ seconds at 4 Hz. The phase-rectified curve is
+\[
+C[j]=\frac{1}{|\mathcal{A}^{*}|}
+\sum_{i\in\mathcal{A}^{*}}T[i+j],
+\qquad j=-L,\ldots,L.
+\]
+PRSA uses $D=T=RR$. BPRSA uses $D=R_{\mathrm{amp}}$ and $T=RR$. Empty
+usable-anchor sets produce an explicit undefined row.
+
+The six paper-derived 80-beat values are:
+\begin{align}
+\overline{RR}_{80} &= \frac{1}{80}\sum_{k=1}^{80}RR_k,\\
+SDNN_{80} &= \sqrt{\frac{1}{80}\sum_{k=1}^{80}
+  (RR_k-\overline{RR}_{80})^2},\\
+S_{RR} &= \frac{C_{RR}[+1]-C_{RR}[-1]}{2},&
+\Delta_{RR} &= \frac{C_{RR}[+L]-C_{RR}[-L]}{2L+1},\\
+S_R &= \frac{C_R[+1]-C_R[-1]}{2},&
+\Delta_R &= \frac{C_R[+L]-C_R[-L]}{2L+1}.
+\end{align}
+The denominator $80$ in SDNN is the population convention shown in the
+paper, not sample SD with denominator 79 \cite{varon2015}. $S_{RR}$ and
+$\Delta_{RR}$ come from PRSA; $S_R$ and $\Delta_R$ come from BPRSA. Slope
+units are milliseconds per 4-Hz sample, matching the curve's sample-index
+definition rather than silently converting them to milliseconds per second.
+
+The feature matrix exposes the exact programmatic keys
+\texttt{prsa\_mean\_rr80\_ms}, \texttt{prsa\_sdnn80\_ms},
+\texttt{prsa\_s\_rr\_ms\_per\_sample},
+\texttt{prsa\_delta\_rr\_ms\_per\_sample},
+\texttt{bprsa\_s\_r\_ms\_per\_sample}, and
+\texttt{bprsa\_delta\_r\_ms\_per\_sample}. The dashboard also shows the
+actual 41-point PRSA/BPRSA curves, usable anchor counts, detector-support
+coverage, and numerical quality.
+
+These six values are matrix \emph{context}, not part of the core
+morphology--RR/HRV validity gate. The reusable fusion table performs a causal
+backward as-of join: at fusion time $t$, it can attach only the most recent
+PRSA/BPRSA row with \texttt{end\_time\_s}$\leq t$. It exports the prefixed
+\texttt{prsa\_context\_*} values plus measurement time, age, availability,
+definition, reliability, and the derived
+\texttt{prsa\_context\_computationally\_usable = defined AND reliable} flag.
+For backward display compatibility \texttt{usable} is an alias, not an
+artifact-clean claim. The matrix explicitly writes
+\texttt{signal\_quality\_attached=False},
+\texttt{model\_eligible=False}, and
+\texttt{prsa\_context\_affects\_core\_fusion\_gate=False}. Thus the first 79
+warm-up rows, an undefined phase average, poor detector support, or a
+numerical-quality failure cannot invalidate otherwise defined morphology and
+HRV measurements. The values remain available for later ablation or modeling
+only when their context flags are carried with them.
+
+\subsection{Quality flags that do not alter the paper features}
+
+Cubic interpolation can leave the range of its 80 observed points. Range
+overshoot is recorded separately for RR and $R_{\mathrm{amp}}$. Because an RR
+interval cannot be zero or negative, the strict numerical-quality gate fails
+if any 4-Hz resampled RR sample is nonpositive. The six measurements are still
+emitted unchanged with \texttt{feature\_defined=True}; reliability additionally
+requires positive resampled RR and the configured RR/R-amplitude detector
+support coverage. This separation prevents a mathematically finite but
+nonphysical spline result from being called trustworthy.
+
+\subsection{All-48 MIT-BIH expert-anchor result}
+
+MIT-BIH expert \texttt{atr} timestamps were used so this test isolates
+feature arithmetic and availability from automatic R-peak errors. It is not a
+seizure test.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Quantity & Result \\
+\midrule
+Records / expert beats & 48 / 109,494 \\
+Eligible 80-beat windows & 105,654 \\
+Mathematically defined windows & 105,654 (100.000\%) \\
+Positive-resampled-RR quality pass & 104,708 (99.1046\%) \\
+Windows with at least one nonpositive spline RR & 946 (0.8954\%) \\
+Median / P05 usable PRSA anchors & 100 / 67 \\
+Median / P05 usable BPRSA anchors & 102 / 67 \\
+Median fraction of RR grid outside raw window range & 0.9569\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The exact published-style computation is therefore broadly available with
+expert anchors, but not universally numerically safe under arrhythmic RR
+sequences. The 946 failed windows justify retaining the numerical gate or
+testing a shape-preserving interpolation challenger; they do not justify
+silently clipping the published-control features.
+
+\subsection{Lead and polarity audit}
+
+Records 108, 113, 207, 222, and 231 were rerun using channel 0, its global
+sign inversion, and channel 1. RR, mean RR, SDNN, and the two PRSA slopes were
+identical under amplitude-only changes: median Pearson $r=1.0000$. Under
+global sign inversion, the median correlation across the two BPRSA features
+was $-0.8638$. Under channel-0 versus channel-1 change, the median correlation
+across the two BPRSA features was $0.0235$. This is expected rather than a
+software failure: BPRSA selects anchors from a lead-amplitude respiration
+surrogate. Patient baselines, thresholds, or later classifiers must therefore
+quarantine lead/polarity changes or recalibrate them.
+
+\subsection{Fresh causal context-matrix audit}
+
+The all-48 expert-anchor feature table was rerun and then attached to synthetic
+core rows at every exact context timestamp, every between-timestamp midpoint,
+and once before each record's first eligible window. Across 105,654 source
+rows and 211,308 matrix probes, there were zero timestamp mismatches, zero
+mismatches across the six attached values, zero future leaks, zero negative
+context ages, zero availability/usability-flag mismatches, and zero changes to
+either core morphology--HRV gate. No context row was marked as core. The fresh
+MIT feature, record-summary, lead/polarity, and pooled-summary files were
+exactly equal to the earlier audit after parsing. This validates deterministic
+matrix mechanics, not seizure discrimination.
+
+\subsection{Controlled electrode-motion-noise fidelity}
+
+Clean MIT-BIH records 118/119 and their calibrated NSTDB electrode-motion
+copies were compared using identical expert R timestamps. This removes
+detector error and isolates waveform-amplitude corruption. All four RR-only
+values matched exactly at every tested SNR. Median BPRSA correlation across
+the two records and two BPRSA features fell from 0.8100 at +24 dB to 0.0315
+at -6 dB; median sign agreement fell from 0.8836 to 0.5678. Intermediate
+correlations at +18, +12, +6, and 0 dB were respectively 0.7672, 0.6714,
+0.3903, and 0.1343.
+
+The positive-resampled-RR gate cannot detect this failure because RR and its
+expert timestamps are identical in the clean and noisy inputs. Consequently,
+\texttt{feature\_reliable} means detector/numerical reliability, not
+artifact-free BPRSA. The separate signal-quality context and a stable
+lead/polarity state are mandatory before BPRSA becomes model-eligible.
+
+\subsection{Arrhythmia-context audit}
+
+All expert-anchor rows were aligned back to their 81 beat labels. Of 105,654
+windows, 77,696 (73.54\%) contained at least one non-\texttt{N} beat. Every
+one of the 946 nonpositive-spline RR failures occurred in such a window.
+All-\texttt{N} windows passed the numerical gate 100\%; windows containing a
+non-normal beat passed 98.782\%. Arrhythmia is not automatically artifact:
+it can be real seizure-associated or non-seizure physiology. Beat type/rhythm
+must remain confounding context and must be reported in strata rather than
+being silently rejected or treated as proof of seizure.
+
+\subsection{CHB04\_28 exploratory result and why it is not accuracy}
+
+The one locally installed CHB04\_28 EDF contains a named ECG channel and two
+seizure intervals (1679--1781 s and 3782--3898 s). The extractor ran around
+both intervals using automatic NeuroKit timestamps and independent Zhai
+agreement as support context. All six features changed, and unfiltered
+overlapping-window direction-free AUC reached 0.991 for seizure 1
+($SDNN_{80}$) and 0.886 for seizure 2 (mean RR). Those values must not be
+reported as seizure accuracy:
+
+\begin{center}
+\begin{tabular}{llrrr}
+\toprule
+Seizure & Phase & Defined & Strict reliable & Median RR / R-amp support \\
+\midrule
+1 & baseline & 85 & 67 & 1.0000 / 1.0000 \\
+1 & ictal & 118 & 0 & 0.74375 / 0.8375 \\
+2 & baseline & 111 & 0 & 0.2250 / 0.4250 \\
+2 & ictal & 146 & 0 & 0.3500 / 0.5625 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+No ictal window passed strict detector support. Seizure 2 had no strict
+reliable baseline window either. The apparent separation is therefore
+confounded by R-peak disagreement, probable movement/artifact, one patient,
+two events, and 79/80 overlap. No KSC or other classifier was trained. No
+sensitivity, PPV, specificity, false-alarm rate, latency, or patient-level
+generalization was measured. This is a successful software execution and an
+important negative reliability result, not clinical validation.
+
+\section{Frozen original Varon lane}
+\label{sec:varon}
+
+\subsection{Published feature being replicated}
+
+Status: \implemented.
+
+Following the published Varon method \cite{varon2015}, every explicit R-anchor sample produces a nominal 120-ms waveform. Five consecutive waveform rows form
+\[
+Q = \begin{bmatrix}q_1^T&q_2^T&q_3^T&q_4^T&q_5^T\end{bmatrix}^T.
+\]
+It then constructs the uncentered Gram matrix
+\[
+G = QQ^T
+\]
+and returns the eigenvalues
+\[
+\lambda_1 \ge \lambda_2 \ge \lambda_3 \ge \lambda_4 \ge \lambda_5 \ge 0.
+\]
+
+There is no per-beat centering and no amplitude normalization before $QQ^T$. Numerical symmetrization $G\leftarrow(G+G^T)/2$ is applied, \texttt{eigvalsh} is used, descending order is retained, and very small negative numerical eigenvalues are clipped to zero. The 2013 80-ms variant is reproducible only by requesting 40 ms before and 40 ms after R. The branch does not reproduce an unspecified later five-second normalization/classifier stage.
+
+\subsection{Exact sample construction}
+
+The public function is \pathcode{extract_varon_morphology} in \pathcode{src/ecg_cascade/morphology.py}. Its defaults are 60 ms before R, 60 ms after R, exactly five beats, original orientation, and a support-coverage threshold of 1.0.
+
+For equal pre/post requests, including the frozen 60+60-ms and 40+40-ms
+settings, the exact implementation is
+\begin{lstlisting}[language=Python]
+waveform_samples = max(
+    3,
+    int(np.rint((pre_r_ms + post_r_ms) * sampling_rate_hz / 1000.0)),
+)
+pre_samples = waveform_samples // 2
+post_samples = waveform_samples - pre_samples - 1
+first = peak - pre_samples
+last_exclusive = peak + post_samples + 1
+waveform = oriented[first:last_exclusive]
+\end{lstlisting}
+
+The requested equal-side values determine one total sample count. Samples are
+then split around the anchor, with the unavoidable parity difference placed on
+the post-R side. This published-control rule is unchanged. The new experimental
+asymmetric path is activated only when the requested sides differ; it uses
+\texttt{ceil} independently for the pre-R and post-R sample counts and includes
+R once. Synthetic regression tests confirm 40+80 ms at 250 Hz becomes 10
+pre-R samples, 20 post-R samples, and 31 total samples, while the 60+60-ms
+control remains 30 total samples.
+
+Anchors are converted to unique sorted \texttt{int64} values. Edge windows are retained as rows containing NaNs and \texttt{qrs\_capture\_complete=False}; they are not padded. A five-beat eigenspectrum is defined only if all five waveform crops are complete. Detector support and Zhai-correlation fields are summarized as context but never delete a waveform or determine whether eigenvalues are calculated.
+
+\subsection{Outputs and feature semantics}
+
+Per beat, the lane retains anchor index/time, capture sample bounds, completion, detector-support context, comparator timing, optional Zhai correlation, reference symbol/error context, and explicitly exploratory amplitude, peak-to-peak, RMS, and maximum-absolute-slope descriptors.
+
+Per five-beat window it retains timing bounds, the five anchor samples, capture coverage, support coverage, detector disagreement, comparator offsets, correlation context, reference-symbol transitions, $\lambda_1$ through $\lambda_5$, total eigenvalue energy, exploratory $\lambda_1$ energy fraction, and exploratory $\lambda_{3:5}$ energy fraction. It explicitly writes that delineation was not run and no seizure or artifact classifier was produced.
+
+\subsection{Why R detection comes first but does not solve morphology}
+
+Yes, the RR/R-peak branch supplies the R anchors and the morphology window starts from those anchors. Accurate R anchors remove one uncertainty. They do not tell us where QRS onset and offset lie relative to R. R is often near the largest QRS deflection, not a guaranteed midpoint of the manual QRS interval. Wide, skewed, negative, paced, ectopic, and multi-peaked complexes can extend unequally before and after the selected anchor.
+
+\section{All-48 MIT-BIH detector-to-Varon fidelity}
+\label{sec:mitfidelity}
+
+This audit asked whether candidate R-peak tracks preserve the original expert-anchor Varon features. It did not test seizure detection. All 48 MIT-BIH records were used.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Pooled beat and five-beat fidelity against expert MIT-BIH anchors.}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Track & TP & FP & FN & Sens. & PPV & $F_1$ & 5-beat cov. \\
+\midrule
+UNSW & 109,244 & 350 & 250 & 99.772\% & 99.681\% & 99.726\% & 98.708\% \\
+NeuroKit & 107,677 & 2,503 & 1,817 & 98.341\% & 97.728\% & 98.033\% & 93.424\% \\
+Zhai & 107,324 & 958 & 2,170 & 98.018\% & 99.115\% & 98.564\% & 92.258\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Median absolute timing errors were 5.556 ms for UNSW, 0 ms for NeuroKit, and 2.778 ms for Zhai. Median raw eigenvalue relative $L_1$ errors were 0.02277, 0.00707, and 0.00825 respectively. Median exploratory normalized-spectrum $L_1$ errors were 0.01131, 0.00516, and 0.00515. Thus UNSW had the best window coverage, while NeuroKit and Zhai had smaller conditional feature error on windows that remained fully matched. Coverage and conditional fidelity must be reported together.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Eigenvalue agreement: CCC / SMAPE by component.}
+\begin{tabular}{lccccc}
+\toprule
+Track & $\lambda_1$ & $\lambda_2$ & $\lambda_3$ & $\lambda_4$ & $\lambda_5$ \\
+\midrule
+UNSW & .9238 / .0708 & .9100 / .3706 & .5035 / .5467 & .4932 / .4683 & .4244 / .4471 \\
+NeuroKit & .9771 / .0428 & .9446 / .2115 & .6386 / .3447 & .6562 / .3184 & .7433 / .3079 \\
+Zhai & .9835 / .0378 & .9120 / .2325 & .6691 / .3760 & .6134 / .3456 & .6963 / .3371 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The higher-order eigenvalues are less stable than $\lambda_1$. This matters because small anchor differences can alter a five-beat stack even when beat-level timing looks excellent.
+
+Record-level counterexamples prevent overclaiming:
+
+\begin{itemize}
+  \item Record 113: NeuroKit beat $F_1$ was approximately 0.775 and strict five-beat coverage only 0.107 because of extra detections.
+  \item Record 207: NeuroKit median timing error was about 66.7 ms and five-beat coverage 0.372.
+  \item Record 203: Zhai coverage was 0.386; UNSW coverage was 0.860.
+  \item Record 102: UNSW detected all reference beats, yet the median normalized-spectrum error was about 0.540. Perfect beat count does not guarantee waveform-feature fidelity.
+  \item Records 208 and 233 were high-error Zhai cases.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.93\textwidth]{../../outputs/morphology_fidelity_all48_v1/morphology_fidelity_summary.png}
+\caption{Saved all-48 MIT-BIH morphology-fidelity summary. The image is an audit visualization, not a seizure-performance plot.}
+\end{figure}
+
+\section{Does a fixed 120-ms crop contain the manual QRS?}
+\label{sec:fixedcapture}
+
+For a manual QRS with onset-to-R distance $L$ and R-to-offset distance $A$, a symmetric 120-ms crop captures the entire QRS only when
+\[
+L\leq 60\text{ ms}\quad\text{and}\quad A\leq 60\text{ ms}.
+\]
+
+\begin{table}[H]
+\centering
+\caption{Manual complete-QRS capture by the fixed 60+60-ms Varon window.}
+\begin{tabular}{lrrr}
+\toprule
+Dataset & Complete QRS beats & Captured & Truncated \\
+\midrule
+LUDB lead II & 1,817 & 73.748\% & 26.252\% \\
+QTDB MLII & 462 & 62.771\% & 37.229\% \\
+Combined & 2,279 & 71.523\% & 28.477\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The combined median manual QRS duration was 92 ms and P95 was 140 ms. Duration alone is not enough. On LUDB, median onset-to-anchor was 44 ms (P95 60), median anchor-to-offset was 48 ms (P95 86), and total duration was 92 ms (P95 138). On QTDB the corresponding values were 48 ms (P95 100), 40 ms (P95 100), and 92 ms (P95 144).
+
+The median R-anchor position within the manual QRS was 46.94\% from onset on LUDB and 52.63\% on QTDB. Those medians look near the center, but the tail asymmetry determines whether an individual crop fails. The required symmetric width per beat is
+\[
+W_i^{\mathrm{required}}=2\max(L_i,A_i).
+\]
+Its LUDB distribution had median 104 ms and P95 180 ms; QTDB had median 112 ms and P95 216 ms. Useful lower quantiles were: LUDB P10 84, P20/P25 92, P75 124, P90 144 ms; QTDB P10 80, P20 88, P25 96, P75 152, P90 200 ms.
+
+Conclusion: the fixed Varon window is a faithful replication feature, not a universal complete-QRS representation. Simply increasing it globally would trade truncation against inclusion of P/ST/T or neighboring content and would no longer be the published 120-ms control. A width ablation belongs in a separate challenger lane.
+
+\section{DWT/CWT delineation gate}
+\label{sec:dwtcwt}
+
+Status: DWT is an \implemented{} benchmark baseline but not promoted; CWT is a \testednegative{} branch for this implementation and scope.
+
+\subsection{Controlled protocol}
+
+The audit used NeuroKit2 0.2.13. LUDB included all 200 lead-II records at 500 Hz. QTDB included the 12 records whose manually annotated channel 0 is MLII at 250 Hz. QTDB scoring used the \texttt{q1c} second-pass manual landmarks on selected beats; the full expert \texttt{atr} beat stream supplied delineation context. Reference R/QRS anchors were supplied, so the experiment isolated delineation from R detection. Matching was one-to-one within 150 ms. No record failed at the runner level.
+
+NeuroKit CWT with \texttt{check=True} raised
+\begin{lstlisting}
+ValueError: All arrays must be of the same length
+\end{lstlisting}
+because landmark arrays can have different lengths. The saved audit therefore ran \texttt{check=False}, preserved missing values, and associated variable-length landmark arrays to R anchors by physiological phase. This is a documented software limitation, not a successful consistency check.
+
+\subsection{Complete pooled results}
+
+Tables~\ref{tab:ludbdwtcwt} and~\ref{tab:qtdbdwtcwt} report every pooled landmark row. ``Ref/Pred/Match'' are reference, predicted, and matched counts. Errors are milliseconds.
+
+\begin{landscape}
+\begin{longtable}{llrrrrrrrrr}
+\caption{LUDB lead-II DWT/CWT pooled landmark results.}\label{tab:ludbdwtcwt}\\
+\toprule
+Method & Landmark & Ref & Pred & Match & Sens. & PPV & $F_1$ & Mean err. & Med. abs. & P95 abs. \\
+\midrule
+\endfirsthead
+\toprule
+Method & Landmark & Ref & Pred & Match & Sens. & PPV & $F_1$ & Mean err. & Med. abs. & P95 abs. \\
+\midrule
+\endhead
+CWT & P offset & 1401 & 1249 & 1158 & .8266 & .9271 & .8740 & -4.3 & 6 & 16 \\
+CWT & P onset & 1401 & 1182 & 1164 & .8308 & .9848 & .9013 & -7.7 & 8 & 22 \\
+CWT & P peak & 1401 & 1230 & 1164 & .8308 & .9463 & .8848 & 1.2 & 2 & 8 \\
+CWT & QRS offset & 1830 & 622 & 622 & .3399 & 1.0000 & .5073 & -6.6 & 8 & 32 \\
+CWT & QRS onset & 1817 & 1196 & 1196 & .6582 & 1.0000 & .7939 & -23.9 & 18 & 62 \\
+CWT & T offset & 1642 & 1467 & 1337 & .8143 & .9114 & .8601 & 4.5 & 8 & 50 \\
+CWT & T onset & 1642 & 1469 & 1324 & .8063 & .9013 & .8512 & 3.3 & 14 & 70 \\
+CWT & T peak & 1642 & 1518 & 1353 & .8240 & .8913 & .8563 & -1.8 & 2 & 70.4 \\
+DWT & P offset & 1401 & 1398 & 1385 & .9886 & .9907 & .9896 & -4.0 & 8 & 93.2 \\
+DWT & P onset & 1401 & 1397 & 1391 & .9929 & .9957 & .9943 & -0.2 & 4 & 62 \\
+DWT & P peak & 1401 & 1398 & 1389 & .9914 & .9936 & .9925 & -5.0 & 2 & 68 \\
+DWT & QRS offset & 1830 & 1724 & 1651 & .9022 & .9577 & .9291 & 12.6 & 10 & 66 \\
+DWT & QRS onset & 1817 & 1743 & 1713 & .9428 & .9828 & .9624 & -47.9 & 34 & 124 \\
+DWT & T offset & 1642 & 1603 & 1419 & .8642 & .8852 & .8746 & -13.1 & 10 & 86 \\
+DWT & T onset & 1642 & 1603 & 1533 & .9336 & .9563 & .9448 & 16.2 & 38 & 114.8 \\
+DWT & T peak & 1642 & 1603 & 1445 & .8800 & .9014 & .8906 & -6.5 & 2 & 103.6 \\
+\bottomrule
+\end{longtable}
+\end{landscape}
+
+\begin{landscape}
+\begin{longtable}{llrrrrrrrrr}
+\caption{QTDB MLII DWT/CWT pooled landmark results.}\label{tab:qtdbdwtcwt}\\
+\toprule
+Method & Landmark & Ref & Pred & Match & Sens. & PPV & $F_1$ & Mean err. & Med. abs. & P95 abs. \\
+\midrule
+\endfirsthead
+\toprule
+Method & Landmark & Ref & Pred & Match & Sens. & PPV & $F_1$ & Mean err. & Med. abs. & P95 abs. \\
+\midrule
+\endhead
+CWT & P offset & 402 & 309 & 200 & .4975 & .6472 & .5626 & -32.8 & 12 & 108 \\
+CWT & P onset & 402 & 207 & 156 & .3881 & .7536 & .5123 & -43.0 & 28 & 141 \\
+CWT & P peak & 402 & 294 & 200 & .4975 & .6803 & .5747 & -39.4 & 12 & 140.2 \\
+CWT & QRS offset & 462 & 160 & 160 & .3463 & 1.0000 & .5145 & -1.2 & 8 & 32 \\
+CWT & QRS onset & 462 & 115 & 115 & .2489 & 1.0000 & .3986 & -31.9 & 28 & 64 \\
+CWT & T offset & 462 & 350 & 326 & .7056 & .9314 & .8030 & 12.5 & 12 & 79 \\
+CWT & T onset & 31 & 0 & 0 & 0 & -- & 0 & -- & -- & -- \\
+CWT & T peak & 462 & 355 & 331 & .7165 & .9324 & .8103 & 14.2 & 8 & 80 \\
+DWT & P offset & 402 & 402 & 402 & 1.0000 & 1.0000 & 1.0000 & 9.0 & 12 & 44 \\
+DWT & P onset & 402 & 402 & 402 & 1.0000 & 1.0000 & 1.0000 & 19.3 & 16 & 79.8 \\
+DWT & P peak & 402 & 402 & 402 & 1.0000 & 1.0000 & 1.0000 & 10.1 & 8 & 44 \\
+DWT & QRS offset & 462 & 340 & 340 & .7359 & 1.0000 & .8479 & 3.2 & 8 & 44 \\
+DWT & QRS onset & 462 & 412 & 405 & .8766 & .9830 & .9268 & -53.0 & 60 & 128 \\
+DWT & T offset & 462 & 340 & 321 & .6948 & .9441 & .8005 & -19.0 & 16 & 84 \\
+DWT & T onset & 31 & 15 & 9 & .2903 & .6000 & .3913 & 41.8 & 36 & 92 \\
+DWT & T peak & 462 & 340 & 330 & .7143 & .9706 & .8229 & -1.2 & 8 & 74.2 \\
+\bottomrule
+\end{longtable}
+\end{landscape}
+
+CWT was often precise conditional on returning a boundary, but it omitted too many QRS landmarks. DWT had better coverage, but QRS onset was systematically early and had large tail error. Neither passed the planned complete-QRS gate. This does not reject wavelets as a class: it rejects these tested NeuroKit2 0.2.13 paths under this matched-lead protocol. Faithful Martinez and Di Marco-style wavelet delineators remain classical challengers \cite{martinez2004,dimarco2011}.
+
+\section{Prominence P--QRS--T lane}
+\label{sec:prominence}
+
+Status: \implemented{} and accepted for feature extraction with explicit P/T reliability flags.
+
+\subsection{Exact implementation}
+
+\pathcode{extract_prominence_morphology} in \pathcode{src/ecg_cascade/prominence_morphology.py} validates a finite one-dimensional signal and in-range anchors, applies the requested orientation, sorts unique R anchors, cleans the ECG with \texttt{nk.ecg\_clean(..., method="neurokit")}, and calls:
+
+\begin{lstlisting}[language=Python]
+nk.ecg_delineate(
+    cleaned,
+    rpeaks=peaks,
+    sampling_rate=sampling_rate_hz,
+    method="prominence",
+    check=False,
+)
+\end{lstlisting}
+
+The method is the Emrich-2024 prominence delineator through NeuroKit2 0.2.13 \cite{emrich2024}. If a returned landmark array has exactly one item per R anchor, valid finite samples are rounded and retained in place. Otherwise, finite unique samples are physiologically associated with anchors; the first eligible value fills the slot. Missing values remain missing.
+
+For each R anchor, the expected ordered sequence is P onset, P peak, P offset, QRS onset, R, QRS offset, T onset, T peak, T offset. Availability is the fraction of the eight non-R landmarks present. Complete-P, complete-QRS, complete-T, complete-PQRST, and physiological-order flags are recorded.
+
+The local baseline is the median of the 40-ms signal region immediately before QRS onset; R is the endpoint fallback if QRS onset is missing; zero is used only if no pre-endpoint sample exists. QRS polarity is positive when the maximum baseline-centered positive excursion is at least the absolute negative excursion, otherwise negative. No silent inversion is applied.
+
+\subsection{Exact per-beat feature dictionary}
+
+\begin{longtable}{p{0.30\textwidth}p{0.64\textwidth}}
+\caption{Prominence-lane features.}\\
+\toprule
+Feature group & Exact output \\
+\midrule
+\endfirsthead
+\toprule
+Feature group & Exact output \\
+\midrule
+\endhead
+Identity/timing & Beat index, anchor track, patient ID, lead name, R sample/time, and every non-R landmark sample \\
+Availability & Landmark availability fraction divided by eight; complete P, QRS, T, PQRST; physiological order valid \\
+Durations & P duration; PR interval from P onset to QRS onset; QRS duration; ST interval from QRS offset to T onset; QT interval from QRS onset to T offset; R-to-T-peak interval. Negative or unavailable intervals are NaN \\
+Signed amplitudes & Local baseline; P peak, R anchor, and T peak relative to baseline \\
+QRS descriptors & Peak-to-peak amplitude; signed trapezoidal QRS area divided by sampling rate; positive/negative/missing polarity \\
+Scope flags & Seizure probability false; artifact label false \\
+\bottomrule
+\end{longtable}
+
+QTc, JT, Q, R-prime, S subwave measurements, a signal-quality index, and a classifier are not implemented.
+
+\subsection{Complete pooled prominence results}
+
+No record failed at runtime. Some records produced SciPy \texttt{PeakPropertyWarning: some peaks have a prominence of 0}; this was retained as a scientific warning and was not counted as a runner failure.
+
+\begin{landscape}
+\begin{longtable}{llrrrrrrrrr}
+\caption{Prominence pooled landmark results.}\label{tab:prominenceall}\\
+\toprule
+Dataset & Landmark & Ref & Pred & Match & Sens. & PPV & $F_1$ & Mean err. & Med. abs. & P95 abs. \\
+\midrule
+\endfirsthead
+\toprule
+Dataset & Landmark & Ref & Pred & Match & Sens. & PPV & $F_1$ & Mean err. & Med. abs. & P95 abs. \\
+\midrule
+\endhead
+LUDB & P offset & 1401 & 1398 & 1396 & .9964 & .9986 & .9975 & -4.0 & 8 & 30 \\
+LUDB & P onset & 1401 & 1398 & 1396 & .9964 & .9986 & .9975 & 7.6 & 8 & 34 \\
+LUDB & P peak & 1401 & 1398 & 1395 & .9957 & .9979 & .9968 & 0.8 & 2 & 8 \\
+LUDB & QRS offset & 1830 & 1830 & 1830 & 1.0000 & 1.0000 & 1.0000 & -11.8 & 14 & 44 \\
+LUDB & QRS onset & 1817 & 1817 & 1817 & 1.0000 & 1.0000 & 1.0000 & 4.9 & 8 & 24 \\
+LUDB & T offset & 1642 & 1600 & 1591 & .9689 & .9944 & .9815 & 11.9 & 18 & 52 \\
+LUDB & T onset & 1642 & 1600 & 1592 & .9695 & .9950 & .9821 & 7.1 & 14 & 68.9 \\
+LUDB & T peak & 1642 & 1600 & 1592 & .9695 & .9950 & .9821 & 1.5 & 2 & 64 \\
+QTDB & P offset & 402 & 402 & 402 & 1.0000 & 1.0000 & 1.0000 & 5.0 & 12 & 52 \\
+QTDB & P onset & 402 & 402 & 400 & .9950 & .9950 & .9950 & 22.8 & 20 & 68.2 \\
+QTDB & P peak & 402 & 402 & 402 & 1.0000 & 1.0000 & 1.0000 & 10.9 & 8 & 44 \\
+QTDB & QRS offset & 462 & 462 & 462 & 1.0000 & 1.0000 & 1.0000 & -10.1 & 16 & 72 \\
+QTDB & QRS onset & 462 & 462 & 462 & 1.0000 & 1.0000 & 1.0000 & 6.4 & 12 & 48 \\
+QTDB & T offset & 462 & 402 & 399 & .8636 & .9925 & .9236 & -8.9 & 16 & 108 \\
+QTDB & T onset & 31 & 31 & 31 & 1.0000 & 1.0000 & 1.0000 & -94.3 & 96 & 112 \\
+QTDB & T peak & 462 & 402 & 401 & .8680 & .9975 & .9282 & 4.6 & 8 & 104 \\
+\bottomrule
+\end{longtable}
+\end{landscape}
+
+Prominence was a major QRS-onset improvement over the tested DWT/CWT paths. However, 100\% sensitivity/PPV does not imply exact boundaries: QTDB QRS-offset P95 error remained 72 ms. T offset sensitivity was 96.9\% on LUDB and 86.4\% on QTDB. QTDB T onset appears as 100\% matched but is based on only 31 references and has 96-ms median absolute error, so it is not a strong result. P and T features therefore retain per-beat availability and order flags.
+
+\section{Patient-specific Varon width experiments}
+\label{sec:personalwidth}
+
+\subsection{The exact user-proposed arithmetic-mean experiment}
+
+Status: \testednegative.
+
+For each record and calibration count $k$, the experiment selected the first $k$ complete manual QRS onset/R/offset triplets, calculated the arithmetic mean total QRS duration
+\[
+\overline{W}_{\mathrm{total}}=\frac{1}{k}\sum_{i=1}^{k}(L_i+A_i),
+\]
+and gave every later beat a symmetric crop of $\overline{W}_{\mathrm{total}}/2$ on each side of R. It introduced no onset-to-R feature, no R-to-offset feature, no margin, no population parameter, no waveform template, and no classifier. The calibration/test split was chronological within the short record.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Held-out complete-QRS capture for the exact mean-total-duration proposal.}
+\begin{tabular}{llrrrrrr}
+\toprule
+Data & $k$ & Records & Later beats & Median width & Fixed & Mean total & Change \\
+\midrule
+LUDB & 3 & 199 & 1220 & 93.3 & 73.6\% & 18.4\% & -55.16 pp \\
+LUDB & 5 & 196 & 823 & 94.0 & 74.1\% & 18.8\% & -55.29 pp \\
+LUDB & 10 & 44 & 105 & 91.2 & 74.3\% & 21.9\% & -52.38 pp \\
+QTDB & 3 & 12 & 426 & 88.7 & 62.2\% & 16.4\% & -45.77 pp \\
+QTDB & 5 & 12 & 402 & 90.4 & 61.4\% & 17.4\% & -44.03 pp \\
+QTDB & 10 & 12 & 342 & 92.6 & 62.0\% & 19.3\% & -42.69 pp \\
+QTDB & 20 & 12 & 222 & 94.9 & 61.3\% & 27.5\% & -33.78 pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Beat accounting confirms the loss. LUDB gained/lost beats versus fixed were 10/683 at $k=3$, 6/461 at $k=5$, and 1/56 at $k=10$. QTDB gained zero beats and lost 195, 177, 146, and 75 at $k=3,5,10,20$.
+
+This failed even though it is not a learned model. ``Overfit'' was not the right primary explanation. The geometry was wrong for the task. A symmetric crop captures a beat only when its width is at least $2\max(L_i,A_i)$, not merely $L_i+A_i$. Whenever R is off-center, $2\max(L_i,A_i)>L_i+A_i$. Averaging total duration also produces a width near 90--95 ms, shorter than the 120-ms control and insensitive to the held-out tail. The result is retained because it exactly tests the requested idea.
+
+\subsection{Corrected one-number patient calibration}
+
+Status: \implemented{} challenger.
+
+The correction still gives each patient/lead exactly one width. It first transforms every calibration beat into the symmetric width that would actually capture it:
+\[
+U_i=2\max(L_i,A_i).
+\]
+Then it selects one statistic: arithmetic mean of $U_i$, empirical 95th percentile of $U_i$, or maximum of $U_i$. The implementation uses \texttt{np.mean}, \texttt{np.quantile(required\_widths, 0.95)}, or \texttt{np.max}. Inputs must be one-dimensional, equal length, non-empty, finite, and non-negative. The chosen width is passed as equal halves to the unchanged five-beat Varon core.
+
+\begin{landscape}
+\begin{table}[H]
+\centering
+\small
+\caption{Corrected personalized symmetric-width held-out capture. Width entries are median patient widths in milliseconds.}
+\begin{tabular}{llrrrrrrrrrrr}
+\toprule
+Data & $k$ & Rec. & Beats & Fixed & \multicolumn{2}{c}{Mean total} & \multicolumn{2}{c}{Mean required} & \multicolumn{2}{c}{P95 required} & \multicolumn{2}{c}{Max required} \\
+\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}
+&&&& Cap. & Width & Cap. & Width & Cap. & Width & Cap. & Width & Cap. \\
+\midrule
+LUDB & 3 & 199 & 1220 & 73.6\% & 93.3 & 18.4\% & 102.7 & 53.7\% & 110.8 & 72.2\% & 112.0 & 81.1\% \\
+LUDB & 5 & 196 & 823 & 74.1\% & 94.0 & 18.8\% & 104.0 & 57.4\% & 116.0 & 83.1\% & 120.0 & 87.4\% \\
+LUDB & 10 & 44 & 105 & 74.3\% & 91.2 & 21.9\% & 101.6 & 51.4\% & 120.4 & 89.5\% & 124.0 & 94.3\% \\
+QTDB & 3 & 12 & 426 & 62.2\% & 88.7 & 16.4\% & 104.0 & 51.9\% & 128.8 & 72.8\% & 132.0 & 75.1\% \\
+QTDB & 5 & 12 & 402 & 61.4\% & 90.4 & 17.4\% & 106.4 & 53.5\% & 133.6 & 79.1\% & 140.0 & 83.3\% \\
+QTDB & 10 & 12 & 342 & 62.0\% & 92.6 & 19.3\% & 110.4 & 50.6\% & 144.8 & 82.5\% & 148.0 & 90.9\% \\
+QTDB & 20 & 12 & 222 & 61.3\% & 94.9 & 27.5\% & 110.6 & 51.8\% & 144.8 & 88.7\% & 164.0 & 91.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{landscape}
+
+For completeness, changes and beat accounting for mean/P95/max required widths were:
+
+\begin{itemize}
+  \item LUDB $k=3$: -19.92/-1.39/+7.46 percentage points; gained/lost 113/356, 183/200, 204/113.
+  \item LUDB $k=5$: -16.77/+8.99/+13.24 points; gained/lost 74/212, 138/64, 150/41.
+  \item LUDB $k=10$: -22.86/+15.24/+20.00 points; gained/lost 6/30, 18/2, 21/0.
+  \item QTDB $k=3$: -10.33/+10.56/+12.91 points; gained/lost 30/74, 69/24, 75/20.
+  \item QTDB $k=5$: -7.96/+17.66/+21.89 points; gained/lost 34/66, 90/19, 101/13.
+  \item QTDB $k=10$: -11.40/+20.47/+28.95 points; gained/lost 30/69, 73/3, 99/0.
+  \item QTDB $k=20$: -9.46/+27.48/+30.63 points; gained/lost 10/31, 62/1, 68/0.
+\end{itemize}
+
+Per-record P95/max win-tie-loss counts against fixed were: LUDB $k=3$, 56/59/84 and 59/78/62; $k=5$, 62/91/43 and 63/103/30; $k=10$, 6/36/2 and 8/36/0. QTDB $k=3$, 6/2/4 and 7/3/2; $k=5$, 7/3/2 and 8/2/2; $k=10$, 7/3/2 and 9/3/0; $k=20$, 6/5/1 and 8/4/0.
+
+The P95-required-width variant is the preferred personalized challenger when at least five clean earlier calibration beats exist; the fixed 120-ms control is the fallback below five. With five beats, median windows were 116.0 ms on LUDB and 133.6 ms on QTDB, with capture 83.1\% and 79.1\%. Three LUDB calibration beats were inadequate: P95 capture was 72.2\%, slightly below fixed.
+
+The maximum statistic achieved the highest capture, but record-level window tails were large: depending on dataset and calibration size, P95 of patient maximum widths was roughly 184--232 ms. Such crops can include non-QRS signal and be controlled by one unusual beat. Maximum remains a sensitivity analysis. The LUDB $k=10$ row contains only 44 eligible records and 105 held-out beats, so it is selection-limited.
+
+\subsubsection{Terminology audit: ``corrected maximum'' is not ECG amplitude}
+
+``Corrected maximum'' means the maximum \emph{required symmetric duration}
+observed among calibration beats. It never means the maximum voltage, R-wave
+amplitude, peak-to-peak amplitude, or maximum sample value. For calibration
+beat $i$, the required duration is
+\[
+U_i=2\max(R_i-QRS_{onset,i},\ QRS_{offset,i}-R_i).
+\]
+The corrected-maximum width is $\max_i U_i$. If five calibration beats require
+100, 108, 112, 120, and 200 ms, the corrected maximum is 200 ms and the
+symmetric crop is 100 ms before plus 100 ms after R. With NumPy's default
+linear quantile rule, the P95 of those five values is 184 ms, giving nominal
+92-ms halves. This example explains the statistic; it is not an observed
+patient from LUDB or QTDB.
+
+Maximum achieved the highest complete-QRS capture in every saved summary row.
+That makes it best only for the audited boundary-capture endpoint. It does not
+show that maximum produces the best Varon eigenspectrum, seizure sensitivity,
+specificity, PPV, $F_1$, AUROC, false-alarm rate, or warning time. The reported
+184--232-ms values are approximate record-level P95 values of the
+maximum-window distributions across the tested configurations, not the global
+maximum of every crop. The statement that such windows may include additional
+ST/T, baseline, or noise is a geometric risk inference; contamination was not
+directly quantified in this experiment.
+
+\subsection{Patient-specific asymmetric window: implementation and first test}
+\label{sec:asymmetricproposal}
+
+Status: \implemented{} as an experimental crop with synthetic software tests,
+one real LUDB extraction check, and held-out LUDB/QTDB manual-boundary
+evaluation. Gram-feature stability and seizure discrimination are \notdone.
+
+R is a fiducial reference, not an anatomical guarantee that the QRS has equal
+duration on both sides. Classical delineation papers first detect the QRS/R
+reference and then identify onset and offset as separate landmarks
+\cite{martinez2004,illanes2007,dimarco2011}. Fixed asymmetric beat windows also
+exist; Singh and Singh used 80 ms before and 100 ms after the R fiducial for an
+ECG-biometric QRS window \cite{singh2013}. Lorenz et al. calculated
+patient-specific pre-R and post-R removal-window lengths from separately
+measured QR, RS, and ST durations, but for ventricular far-field removal in
+intracardiac electrograms, not seizure morphology PCA \cite{lorenz2021}.
+
+The project extension uses the first $k$ causal, clean, same-lead
+calibration beats. Define
+\[
+B_i=R_i-QRS_{onset,i},\qquad
+A_i=QRS_{offset,i}-R_i,\qquad
+\rho_i=\frac{B_i}{B_i+A_i}.
+\]
+It selects two patient/lead parameters instead of one:
+\[
+B^*=Q_{0.95}(B_1,\ldots,B_k),\qquad
+A^*=Q_{0.95}(A_1,\ldots,A_k).
+\]
+The crop is $[R-B^*,R+A^*]$. $\rho_i$ is retained only as an audit
+measure of within-patient R position; it is not required to construct the crop.
+Separate marginal P95 values do not mathematically guarantee 95\% joint
+complete-QRS capture, so held-out joint capture must be measured directly.
+
+The pre/post milliseconds, NumPy default linear quantile method, and sampling
+conversion are frozen in metadata. The implemented sample rule is
+\begin{lstlisting}[language=Python]
+before_ms = np.quantile(calibration_onset_to_r_ms, 0.95)
+after_ms  = np.quantile(calibration_r_to_offset_ms, 0.95)
+pre_samples  = int(np.ceil(before_ms * sampling_rate_hz / 1000.0))
+post_samples = int(np.ceil(after_ms  * sampling_rate_hz / 1000.0))
+waveform = ecg[r_peak - pre_samples : r_peak + post_samples + 1]
+\end{lstlisting}
+Ceiling prevents a calibrated boundary from being shortened merely because it
+falls between samples. Equal pre/post inputs retain the original total-length
+then symmetric-split control. Unequal inputs enter the new independent-side
+path. The public experimental wrapper is
+\pathcode{extract_patient_asymmetric_varon_morphology}; fewer than five
+calibration pairs trigger an explicit 60+60-ms fallback by default.
+
+A real extraction check on LUDB \pathcode{data/1}, lead II, used its first five
+complete manual triplets. P95 calibration was 53.2 ms before and 65.6 ms after
+R. At 500 Hz this became 27 and 33 samples, respectively, plus R once: 61
+samples per beat. All six record anchors produced beat rows and both possible
+five-beat Gram-feature rows were defined. This verifies execution, not seizure
+relevance or feature superiority.
+
+\subsubsection{Ground truth, split, and exact controls}
+
+LUDB contributes lead-II cardiologist QRS onset/R/offset annotations. Record
+\pathcode{data/104} had no complete triplet and was saved as a skip; 199
+records contributed to the three-beat experiment. QTDB contributes the 12
+records whose annotated channel 0 is MLII; selected manual \texttt{q1c}
+boundaries are associated with the record's expert \texttt{atr} R stream.
+Calibration always uses the first $k$ complete annotated triplets and testing
+uses only later triplets from that record. MIT-BIH Arrhythmia is deliberately
+excluded: its beat annotations are valid beat references but not beatwise
+manual QRS-onset/QRS-offset ground truth.
+
+Two fixed controls prevent a hidden unit mismatch. The historical nominal
+control treats the reach as exactly 60+60 ms and reproduces the earlier 73.6\%
+LUDB and 62.2\% QTDB three-beat rows. The current extractor control uses the
+actual sampled endpoints: at 500 Hz it reaches 60 ms before and 58 ms after R;
+at 250 Hz it reaches 60 and 56 ms. This gives total endpoint spans of 118 and
+116 ms. It does not mean the published configuration was renamed; it makes the
+sample-index consequence visible.
+
+\begin{landscape}
+\subsubsection{Held-out complete-QRS capture}
+
+Table~\ref{tab:asymcapture} compares the actual sampled fixed extractor, the
+earlier symmetric $P95[2\max(B,A)]$ crop, and the separate marginal-P95 crop.
+``Extra'' is
+$\max(B^*-B_i,0)+\max(A^*-A_i,0)$: sampled signal before manual onset plus
+after manual offset. It is a geometric amount, not proof that a downstream
+feature is contaminated.
+
+\small
+\begin{longtable}{llrrlrrr}
+\caption{Chronologically held-out asymmetric-window boundary results.}\label{tab:asymcapture}\\
+\toprule
+Dataset & $k$ & Records & Later beats & Crop & Median span (ms) & Capture (\%) & Mean extra (ms) \\
+\midrule
+\endfirsthead
+\toprule
+Dataset & $k$ & Records & Later beats & Crop & Median span (ms) & Capture (\%) & Mean extra (ms) \\
+\midrule
+\endhead
+LUDB II & 3 & 199 & 1220 & Sampled fixed & 118 & 72.5 & 26.4 \\
+LUDB II & 3 & 199 & 1220 & Separate P95 & 102 & 65.5 & 12.5 \\
+LUDB II & 5 & 196 & 823 & Sampled fixed & 118 & 73.4 & 26.4 \\
+LUDB II & 5 & 196 & 823 & Symmetric P95 & 114 & 81.7 & 29.7 \\
+LUDB II & 5 & 196 & 823 & Separate P95 & 106 & 75.5 & 16.7 \\
+LUDB II & 10 & 44 & 105 & Sampled fixed & 118 & 73.3 & 25.6 \\
+LUDB II & 10 & 44 & 105 & Symmetric P95 & 118 & 88.6 & 35.0 \\
+LUDB II & 10 & 44 & 105 & Separate P95 & 106 & 86.7 & 23.1 \\
+QTDB MLII & 3 & 12 & 426 & Sampled fixed & 116 & 60.3 & 29.4 \\
+QTDB MLII & 3 & 12 & 426 & Separate P95 & 112 & 57.5 & 23.8 \\
+QTDB MLII & 5 & 12 & 402 & Sampled fixed & 116 & 59.7 & 29.5 \\
+QTDB MLII & 5 & 12 & 402 & Symmetric P95 & 130 & 79.1 & 50.2 \\
+QTDB MLII & 5 & 12 & 402 & Separate P95 & 116 & 65.9 & 26.8 \\
+QTDB MLII & 10 & 12 & 342 & Sampled fixed & 116 & 59.9 & 29.6 \\
+QTDB MLII & 10 & 12 & 342 & Symmetric P95 & 140 & 81.3 & 59.4 \\
+QTDB MLII & 10 & 12 & 342 & Separate P95 & 136 & 77.8 & 36.9 \\
+QTDB MLII & 20 & 12 & 222 & Sampled fixed & 116 & 59.9 & 30.9 \\
+QTDB MLII & 20 & 12 & 222 & Symmetric P95 & 140 & 88.3 & 71.0 \\
+QTDB MLII & 20 & 12 & 222 & Separate P95 & 142 & 88.7 & 47.1 \\
+\bottomrule
+\end{longtable}
+\end{landscape}
+
+The original idea is useful but is not promoted as the default. With three
+calibration beats it underperformed the sampled fixed control by 7.0 percentage
+points on LUDB and 2.8 on QTDB; the minimum-five fallback prevents this exact
+deployment failure. Five beats improved over sampled fixed by 2.1 points on
+LUDB and 6.2 on QTDB, but remained below the wider symmetric P95 crop. With ten
+LUDB beats, separate P95 lost only 1.9 points versus symmetric P95 while
+reducing the median endpoint span by 12 ms and mean extra signal by 11.8 ms.
+That LUDB row is selection-limited to 44 records and 105 later beats. With 20
+QTDB calibration beats, separate P95 slightly exceeded symmetric capture
+(88.7\% versus 88.3\%) while including 23.9 ms less extra signal on average.
+
+Separate per-side maxima were also run only as a sensitivity analysis. Manual
+P-offset and T-onset overlap were measured where available and were low, but
+QTDB had only 11--28 later T-onset annotations across $k$, so this cannot prove
+general T-wave safety. Full Wilson intervals, macro record capture, misses,
+gains/losses, overlap counts, and every beat are saved under
+\pathcode{outputs/patient_asymmetric_varon_capture_v3/}.
+
+The strongest variable-boundary version would delineate each evaluation beat,
+add separately validated onset and offset safety margins, extract only the
+delineated QRS, and resample onset-to-R and R-to-offset separately to declared
+fixed point counts $n_{pre}$ and $n_{post}$. Actual before-R, after-R, and total
+QRS durations would remain additional features. Separate resampling is needed
+before a common Gram/PCA matrix because unequal row lengths are impossible,
+and allowing patient window sample count to vary changes raw Gram energy as a
+confounder. The point counts and margins are not yet selected.
+
+The evidence boundary is important. The reviewed papers support separate
+onset/offset delineation, fixed asymmetric R windows, patient-specific
+pre/post durations in another application, templates, and DTW
+\cite{martinez2004,illanes2007,singh2013,lorenz2021,adaptiveqrs}. This review did
+not identify a paper that combines patient-specific P95 before/after QRS
+calibration with Varon's five-beat Gram eigenvalues for seizure detection.
+That is a targeted design-record search, not a systematic review, so the report
+does not claim that no prior work exists. Publication wording must remain:
+``an experimental patient- and lead-specific asymmetric extension inspired by
+independent QRS onset/offset delineation.'' A formal systematic search is
+required before making a novelty claim.
+
+\subsubsection{How the symmetric and asymmetric candidates must be judged}
+
+Boundary capture is only the first gate. The fixed, P95 symmetric, maximum
+symmetric, P95 asymmetric, and per-beat delineated/resampled variants must be
+compared first on held-out complete-QRS capture, crop length, extra signal
+before manual onset and after manual offset, and overlap with manual P/T
+regions. They must then be compared on morphology-feature stability and, only
+after causal integration, seizure/event sensitivity, PPV, specificity where a
+negative-window definition exists, $F_1$, AUROC, false alarms per 24 hours,
+latency, coverage, and time in warning. Subject-disjoint chronological or
+pseudo-prospective evaluation is required; ordinary random patient-window
+k-fold is not an acceptable substitute \cite{kalousios,seizeit22025}.
+
+\subsection{Causal calibration rule for future long recordings}
+
+The intended deployment assumption is hours of same-patient data. Calibration must use only earlier same-lead data, freeze before the evaluation interval, exclude known seizure/preictal intervals from the normal baseline where labels permit, and never borrow future manual landmarks. Short LUDB/QTDB records are boundary-validation datasets, not realistic long-baseline simulations. If lead or electrode configuration changes, the state resets or is quarantined. Calibration width is not a trained classifier parameter, but leakage can still create optimistic evaluation if future boundaries are used.
+
+\section{Patient/lead full-cycle template bank}
+\label{sec:template}
+
+Status: \implemented{} with two real MIT-BIH execution checks; full all-record and seizure evaluation are \notdone. Motif monitoring and adaptive QRS-template clustering are partial precedents; the exact frozen patient bank below is project-specific \cite{motif2026,adaptiveqrs}.
+
+\subsection{Cycle construction}
+
+Given sorted unique R anchors $R_i$, only interior anchors $i=1,\ldots,n-2$ can form complete midpoint-bounded cycles:
+\[
+s_i=\left\lfloor\frac{R_{i-1}+R_i}{2}\right\rfloor,\qquad
+e_i=\left\lfloor\frac{R_i+R_{i+1}}{2}\right\rfloor.
+\]
+The implementation slices the pre-R segment including R and resamples it to 65 points, then removes its final point. The post-R segment including R is resampled to 128 points. Concatenation produces 192 points with R at index 64. Defaults are therefore 64 pre-R points and 128 post-R points. First and last anchors are excluded. At least calibration-count plus one complete cycle is required.
+
+The baseline is the median of the first and last $\max(1,\lfloor192/20\rfloor)=9$ samples. It is subtracted from the full cycle. Both the baseline-centered raw waveform $x_i$ and its unit-$L_2$ version
+\[
+\widetilde{x}_i = \frac{x_i}{\lVert x_i\rVert_2}
+\]
+are retained; a zero-norm waveform remains zero. The table also retains original cycle, pre-R, and post-R durations, local baseline, signed anchor amplitude, peak-to-peak amplitude, and RMS. Polarity is preserved.
+
+Separate pre/post resampling fixes the R column while preserving the shape on both sides. Original RR timing is still stored in the RR/HRV branch and cycle-duration fields. The resampling does not claim that two beats have the same true duration.
+
+\subsection{Chronological template-bank calibration}
+
+The first requested complete cycles are the calibration set; the default is 20. Templates are fixed after calibration. The default bank holds at most three morphologies, with new-template correlation threshold 0.90.
+
+Calibration is deterministic and chronological:
+
+\begin{enumerate}
+  \item The first beat starts cluster 0.
+  \item For each later calibration beat, form the unit-normalized pointwise median of each current cluster.
+  \item Compute signed Pearson-like correlation after subtracting each waveform mean.
+  \item If the best finite correlation is below 0.90 and fewer than three clusters exist, start a new cluster. Otherwise assign to the best cluster.
+  \item After all calibration beats, raw templates are pointwise medians of raw cluster members. Normalized templates are pointwise medians of normalized members followed by unit-$L_2$ normalization.
+  \item The dominant compatibility template is the cluster with the largest member count. Singleton templates are retained and reported.
+\end{enumerate}
+
+The 0.90 threshold and three-template cap are implementation choices, not clinically validated constants. Later beats never update the bank in this version.
+
+\subsection{Template and change measurements}
+
+Each beat is matched to the template with maximum signed correlation. No polarity inversion and no lag-optimized cross-correlation alignment are applied. The outputs are:
+
+\begin{itemize}
+  \item matched template index and number of calibration members;
+  \item signed template correlation;
+  \item normalized residual RMSE;
+  \item raw residual RMS and raw residual energy $r^Tr$;
+  \item derivative-DTW cost and warp fraction;
+  \item normalized RMSE and correlation to the immediately previous beat;
+  \item calibration-member and evaluation-eligible flags;
+  \item timing/amplitude metadata described above;
+  \item explicit false flags for seizure probability and artifact labeling.
+\end{itemize}
+
+Calibration scores are emitted for context but are not unbiased evaluation results.
+
+\subsection{Exact derivative-DTW}
+
+For normalized beat $x$ and template $t$, the implementation applies \texttt{np.diff} to both. The local cost is $|\Delta x_i-\Delta t_j|$. Dynamic programming permits diagonal, vertical, and horizontal transitions within a Sakoe-Chiba band. Derivative-DTW also appears in adaptive QRS clustering, but the exact cost normalization and band below are this repository's implementation \cite{adaptiveqrs}:
+\[
+b=\max\left(|n-m|,\left\lceil0.10\max(n,m)\right\rceil\right).
+\]
+The returned cost is total optimal-path cost divided by path length. Warp fraction is the number of non-diagonal path steps divided by path length. Inputs must be finite one-dimensional arrays with at least two original samples; band fraction must be in $(0,1]$. If no finite path exists, both values are NaN.
+
+\subsection{Real-data executions}
+
+MIT-BIH record 100, channel-0 MLII, first 60 seconds, expert \texttt{atr} anchors:
+
+\begin{itemize}
+  \item 74 anchors, 72 complete midpoint cycles, 20 calibration, 52 evaluation;
+  \item one template with 20 members;
+  \item evaluation correlation mean 0.985354, median 0.989421, SD 0.010987, minimum 0.939744, maximum 0.996330;
+  \item normalized RMSE mean 0.012403, median 0.011121, SD 0.004182, minimum 0.006812, maximum 0.026203;
+  \item derivative-DTW cost mean 0.003146, median 0.003075, SD 0.000398, minimum 0.002457, maximum 0.004134;
+  \item warp fraction mean 0.363625, median 0.360515, SD 0.029767, minimum 0.294643, maximum 0.447154;
+  \item all 52 evaluation reference symbols were N.
+\end{itemize}
+
+MIT-BIH record 207, channel-0 MLII, first 120 seconds, expert anchors:
+
+\begin{itemize}
+  \item 110 anchors, 108 complete cycles, 30 calibration, 78 evaluation;
+  \item three templates with 15, 14, and 1 calibration members;
+  \item calibration template 0 contained 15 V beats; template 1 contained 14 R beats; template 2 contained one R beat;
+  \item later assignment: template 0 received 50 beats (41 L, 9 V); template 1 received 18 (6 R, 12 V); template 2 received 10 (2 L, 7 R, 1 V);
+  \item later median correlation by symbol/template was L/0 0.29, L/2 0.22, R/1 0.97, R/2 0.73, V/0 0.63, V/1 0.61, V/2 0.53.
+\end{itemize}
+
+Record 207 demonstrates expected behavior and a limitation: morphology absent from calibration, especially later L beats, remains low-correlation. It is not discarded. The single-member template also shows why minimum cluster support needs a sensitivity analysis. Beat symbols were used only to interpret the run, not to build the templates.
+
+\section{How morphology complements RR/HRV and PRSA/BPRSA}
+\label{sec:rr}
+
+The branches share R anchors but measure different information. The RR side
+now contains two explicit sublanes: the existing 100-RR Jeppesen/Poincar\'e
+features and the implemented 80-beat Varon PRSA/BPRSA features.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{p{0.20\textwidth}X X}
+\toprule
+Question & RR/autonomic branch & Morphology branch \\
+\midrule
+Primary signal & Inter-beat times; BPRSA additionally uses R-peak amplitude as a respiratory driver & Waveform samples around or between beats \\
+Captures & Rate, variability, irregularity, temporal dynamics, phase-organized accelerations, and ECG-derived cardiorespiratory coupling & P/QRS/ST/T geometry, amplitude, polarity, residual shape, novelty \\
+Insensitive to & Much of within-beat shape & Resampling separates shape from absolute RR duration, although duration metadata remains visible \\
+Shared failure & Wrong/missing R anchors can corrupt both & Wrong/missing R anchors can crop or align the wrong waveform \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The full-cycle motif/template features should not be folded invisibly into the
+RR branch. Their R-to-R boundaries use RR structure, but the computed
+correlations, residuals, and DTW costs describe shape. Conversely, BPRSA uses
+one amplitude sample per beat only as a driver; it does not represent the
+P--QRS--T waveform. Later modeling should compare 100-RR HRV-only,
+PRSA/BPRSA-only, their combined autonomic set, each morphology lane alone, and
+explicitly named autonomic-plus-morphology combinations. Shared anchors make
+row alignment possible; they do not make the features redundant.
+
+\section{Literature ideas and disposition}
+\label{sec:literature}
+
+Every row below now names its evidence level. \emph{Direct precedent} means a
+paper implements the named method or core. \emph{Partial precedent} means a
+paper supports a component but not this seizure-branch combination.
+\emph{Project-derived} means the rule is our auditable extension or ablation;
+the cited papers establish only the starting method or neighboring practice.
+These labels prevent a citation from being misread as proof that a paper tested
+our exact implementation.
+
+\begin{longtable}{p{0.23\textwidth}>{\small}p{0.20\textwidth}p{0.46\textwidth}}
+\caption{Every major literature-derived or discussion-derived idea and its disposition.}\\
+\toprule
+Idea & Status & Decision and reason \\
+\midrule
+\endfirsthead
+\toprule
+Idea & Status & Decision and reason \\
+\midrule
+\endhead
+Varon 2015 five-QRS eigenspectrum & \implemented & \emph{Direct precedent.} Frozen seizure-specific replication control \cite{varon2015}. The earlier 2013 80-ms setting is an explicit ablation \cite{varon2013}. \\
+Varon 2015 80-beat PRSA/BPRSA & \implemented{} complementary autonomic lane & \emph{Direct precedent.} The paper supplies the decreasing-anchor rule, 4-Hz tracks, $L=20$, 80-beat step-one windows, and four curve slopes \cite{varon2015}. SciPy not-a-knot cubic interpolation and the explicit nonpositive-RR quality gate are repository choices because the paper does not state the interpolation boundary convention. The paper's KSC classifier is not implemented. \\
+Globally increase 120 ms & \proposed{} ablation only & \emph{Project-derived.} Changing width ceases to be the Varon control; fixed asymmetric windows in other ECG tasks show that alternate crops are established engineering choices \cite{varon2015,singh2013}. \\
+Patient arithmetic-mean total QRS width & \testednegative & \emph{Project-derived.} Exact chronological experiment; 16.4--27.5\% QTDB and 18.4--21.9\% LUDB capture. It extends Varon but is not a published method \cite{varon2015,martinez2004}. \\
+Patient P95 required symmetric width & \implemented{} challenger & \emph{Project-derived.} $P95[2\max(L,A)]$ uses separately known QRS boundaries, but this statistic-plus-Varon combination was not found in the reviewed papers \cite{martinez2004,illanes2007}. \\
+Patient maximum required width & \implemented{} sensitivity analysis & \emph{Project-derived.} Highest capture; record-level P95 window tails 184--232 ms. This is a boundary statistic, not ECG amplitude \cite{varon2015,illanes2007}. \\
+Asymmetric patient crop & \implemented{} experimental challenger & \emph{Partial precedent.} Separate onset/offset searches, fixed asymmetric windows, and patient-specific pre/post durations exist; our separate-P95-plus-Varon rule is project-derived and now has held-out boundary results, not seizure validation \cite{martinez2004,illanes2007,singh2013,lorenz2021}. \\
+Full R-to-R motif / representative beat & \implemented{} in adapted form & \emph{Partial precedent.} Full-cycle motifs, representative beats, DTW, baseline deviation, and instability motivate this adapted lane; the paper is not seizure validated \cite{motif2026}. \\
+Multiple recurring patient templates & \implemented & \emph{Partial precedent.} Adaptive QRS clustering uses evolving templates and DDTW; pediatric seizure work used patient ECG morphology groupings/templates \cite{adaptiveqrs,pediatric2021}. Our frozen three-template bank is its own implementation. \\
+Raw and normalized residuals & \implemented & \emph{Partial precedent.} Template subtraction and patient morphology comparison appear in pediatric seizure analysis and motif monitoring \cite{pediatric2021,motif2026}; our paired raw/unit-$L_2$ outputs are project-defined. \\
+Lag-optimized cross-correlation alignment & \notdone & \emph{Partial precedent.} Correlation/template comparison and DDTW address alignment in prior work \cite{pediatric2021,adaptiveqrs}. Bounded-lag correlation remains an unimplemented project ablation. \\
+Rolling motif instability & \notdone & \emph{Direct component precedent.} Motif-window instability is proposed in monitoring work \cite{motif2026}; only immediate previous-beat change exists here. \\
+Change-point detection & \notdone & \emph{Direct component precedent.} Long pediatric ECG analysis used change points around evolving cardiac measures \cite{pediatric2021}. No change-point algorithm exists here. \\
+Prominence P--QRS--T delineation & \implemented & \emph{Direct precedent.} NeuroKit exposes the Emrich physiology-informed prominence method \cite{emrich2024}; our matched-lead gate defines its accepted scope. \\
+NeuroKit DWT & \implemented{} benchmark only & \emph{Method-family precedent.} Classical wavelet delineators identify independent ECG boundaries \cite{martinez2004,dimarco2011}. Our specific NeuroKit path did not pass the QRS gate. \\
+NeuroKit CWT & \testednegative & \emph{Method-family precedent.} CWT delineation remains an active classical approach \cite{platformcwt2025}; our tested path had poor sensitivity and unequal-array failure. \\
+Martinez 2004 wavelet delineator & \proposed & \emph{Direct precedent.} A validated classical single-lead onset/offset delineator; requires faithful implementation and our identical gate \cite{martinez2004}. \\
+ECGdeli & \deferred & \emph{Direct precedent.} Open-source classical MATLAB delineation toolbox; Python/Octave integration is not established here \cite{ecgdeli,ecgdelicode}. \\
+HiDC-QRS & \deferred & \emph{Direct learned precedent.} Multiscale single-lead QRS boundary network, outside the current DSP-only phase \cite{hidc2026}. \\
+Joung 1D U-Net delineation & \deferred & \emph{Direct learned precedent.} Arrhythmia-focused U-Net-like segmentation is outside current DSP-only scope \cite{joung2024}. \\
+HeartLang, Beat-SSL, RhythmBERT & \deferred & \emph{Direct representation precedents.} Learned/pretrained beat representations are not manual DSP features or seizure-validated drop-ins \cite{heartlang,beatssl,rhythmbert}. \\
+Raw-waveform anomaly detection & \deferred & \emph{Direct seizure precedent.} SeizeIT2 reported 98.16\% sensitivity at 13.9 FA/h for Matrix Profile and 92.86\% at 15.25 FA/h for TimeVQVAE-AD under its seizure-detection window; alarm burden precludes treating it as the final design \cite{seizeit22025}. \\
+Signal-quality router & \proposed & \emph{Direct SQI precedent.} Automated ECG quality indices exist \cite{clifford2012}; a deterministic project-specific router must be separately implemented and validated. \\
+QTc/JT and Q/R-prime/S subwaves & \proposed & \emph{Standards precedent.} Standardized QRS, ST/T, and QT definitions exist, but reliable lead-aware boundaries must precede implementation \cite{ahaqrs2009,ahaqt2009}. \\
+\bottomrule
+\end{longtable}
+
+The 2026 motif study uses R-aligned cycles, normalization, dynamic time warping, a representative patient beat, deviation from baseline, and window instability \cite{motif2026}. This strongly supports the shape-comparison architecture, but the paper is not seizure validated. A pediatric epilepsy ECG study used patient-adaptive morphology analysis, cross-correlation/template operations, intervals, nonlinear features, and change points on 22 patients with a median 93.3 hours of single-lead recording \cite{pediatric2021}; it is exploratory evidence for personalization, not a validated detector. A 2025 P/Q/R/S/T supervised seizure study used 32 selected patients and 47 seizures \cite{supervisedpqrst}, so its full-complex morphology result is encouraging but vulnerable to overfitting and false-alarm uncertainty.
+
+The citation rule for future edits is now explicit: every paper-derived claim must
+carry an inline citation, and every proposed or rejected idea must state whether
+the citation is direct precedent, partial precedent, or merely the origin that
+our project extends. Repository results need source/output paths rather than a
+paper citation. Absence-of-literature and novelty claims require a documented
+systematic search; this report records only what was identified during the
+targeted architecture review.
+
+\section{Trial and error log}
+\label{sec:errors}
+
+No failed attempt is silently removed:
+
+\begin{enumerate}
+  \item \textbf{CWT consistency failure:} \texttt{check=True} raised \texttt{ValueError: All arrays must be of the same length}. Resolution: run the benchmark with \texttt{check=False}, retain missing landmarks, use audited physiological association, and do not promote CWT.
+  \item \textbf{Personalized-width empty-record crash:} an early benchmark reached LUDB record/data 104 with no complete rows and then attempted to access \texttt{r\_peak\_sample}, raising a \texttt{KeyError}. Resolution: skip records with no complete manual QRS onset/R/offset triplets and report the eligibility count.
+  \item \textbf{Wrong MIT-BIH path:} the first template smoke run used the outer extracted folder and raised \texttt{FileNotFoundError} for \texttt{.../mit-bih-arrhythmia-database-1.0/100.hea}. Resolution: use the nested \texttt{mit-bih-arrhythmia-database-1.0.0/100} record base path.
+  \item \textbf{Prominence warnings:} SciPy occasionally emitted \texttt{PeakPropertyWarning} for zero-prominence peaks. There were no runner failures. The warning remains relevant to future SQI work.
+  \item \textbf{Mean-total-width conceptual failure:} implementation was correct for the proposed rule, but the rule did not satisfy symmetric capture geometry. Resolution: preserve it as a negative control and add the required-width summaries.
+  \item \textbf{Fixed-window misunderstanding:} the median QRS being 92 ms does not imply a centered 92-ms crop works. Capture depends on both tails around R. Resolution: report $L$, $A$, $2\max(L,A)$, and manual capture directly.
+  \item \textbf{Asymmetric-argument implementation trap:} the earlier generic extractor accepted differently named pre/post millisecond arguments but converted only their sum and split it symmetrically. Resolution: preserve that rule exactly for equal-side published controls and add a separately tested independent-side \texttt{ceil} path for unequal requests.
+  \item \textbf{Three-beat asymmetric instability:} separate marginal P95 values calibrated on three beats underperformed sampled fixed capture on both datasets. Resolution: retain the direct result, add an explicit below-five fallback, and do not claim that five beats is an established deployment minimum.
+  \item \textbf{PRSA cubic-spline overshoot:} the first all-48 PRSA/BPRSA pass was mathematically complete but exposed extreme slope tails. The rerun showed 946 of 105,654 expert-anchor windows with at least one nonpositive resampled RR value. Resolution: preserve all six paper features unchanged, report cubic range overshoot, and require positive resampled RR for the separate numerical-quality/reliability flag.
+  \item \textbf{CHB04 apparent accuracy trap:} unfiltered overlapping-window AUC values looked high, but detector agreement collapsed during both seizures. Resolution: save the AUCs only as a warning-bearing descriptive output, add support-by-phase tables, and explicitly prohibit interpreting them as seizure accuracy; zero ictal windows passed strict support.
+\end{enumerate}
+
+\section{Implementation status matrix}
+\label{sec:status}
+
+\begin{longtable}{p{0.28\textwidth}p{0.22\textwidth}p{0.41\textwidth}}
+\caption{Current implementation boundary.}\\
+\toprule
+Component & Status & Evidence / missing work \\
+\midrule
+\endfirsthead
+\toprule
+Component & Status & Evidence / missing work \\
+\midrule
+\endhead
+Fixed Varon 120 ms, five beats & \implemented & Unit-tested, all-48 MIT-BIH fidelity audit \\
+Varon PRSA/BPRSA, 80 beats & \implemented{} complementary autonomic lane & Six paper-derived features, 41-point curves, unit tests, live demo/matrix/CSV integration, all-48 expert-anchor audit, lead/polarity audit, and two-seizure CHB04 reliability execution. No KSC classifier \cite{varon2015}. \\
+Varon 80-ms ablation & \implemented{} parameterization & Reproducible via 40+40; no full outcome benchmark documented \\
+Patient mean-total width & \testednegative & LUDB/QTDB held-out capture outputs saved \\
+Patient mean/P95/max required width & \implemented & LUDB/QTDB held-out capture outputs saved; P95 preferred challenger \\
+Patient asymmetric P95 Varon capture & \implemented{} boundary challenger & Independent pre/post sampling is software-tested; chronological LUDB/QTDB boundary results are saved. Gram-feature stability and seizure evaluation remain undone \cite{martinez2004,illanes2007,singh2013,lorenz2021}. \\
+Whole-cycle single template & \implemented & Synthetic tests and MIT record 100 \\
+Whole-cycle multi-template bank & \implemented & Synthetic tests and MIT record 207 \\
+Derivative-DTW & \implemented & Unit tests and real executions \\
+Immediate previous-beat change & \implemented & RMSE and correlation \\
+Rolling instability/change points & \notdone & Needs window definition and causal implementation \\
+Prominence P/QRS/T features & \implemented & Full matched-lead LUDB/QTDB gate \\
+DWT/CWT benchmark & \implemented & Full gate; neither promoted \\
+Integrated SQI/artifact router & \notdone & Low-correlation beats remain uninterpreted measurements \\
+All-48 template-bank benchmark & \notdone & Only records 100 and 207 executed as real-data checks \\
+Threshold sensitivity for 0.90/three templates & \notdone & Required before clinical interpretation \\
+Main RR/HRV plus morphology feature-matrix join & \implemented{} demonstration and reusable joins & The clinical demo causally joins 25 core patient-Varon/template/P--QRS--T/100-RR-HRV measurements and six explicitly labeled PRSA/BPRSA context values. The reusable detector-track fusion CSV also attaches \texttt{prsa\_context\_*} by causal backward as-of join. PRSA/BPRSA definition or reliability does not alter the core fusion gates. This is a measurement/context join, not a trained fusion model. \\
+Seizure dataset PRSA/BPRSA run & \implemented{} exploratory reliability audit & CHB04\_28 two-seizure execution saved; zero ictal windows passed strict detector support, so no seizure-accuracy claim is allowed. \\
+Seizure classifier/probability & \notdone & Explicitly outside current feature-extraction stage \\
+Chronological pseudo-prospective evaluation & \notdone & Required after feature integration \\
+\bottomrule
+\end{longtable}
+
+\section{Software validation inventory}
+
+At the last recorded branch check, 103 tests passed. The morphology- and autonomic-branch tests cover:
+
+\begin{itemize}
+  \item exact Varon Gram eigenvalues on controlled waveforms;
+  \item preservation of detector disagreement as context;
+  \item global-inversion invariance of the Varon Gram spectrum;
+  \item patient-average, required symmetric-width, and separate asymmetric-window calibration validation, including exact independent-side sample bounds and the below-five fallback;
+  \item whole-beat construction, identical-shape behavior, amplitude-sensitive raw residuals, derivative-DTW, and multiple templates;
+  \item prominence feature arithmetic, missing-landmark retention, completeness, and physiological-order flags;
+  \item delineation one-to-one matching and validation utilities;
+  \item morphology/HRV fusion-table behavior without claiming a classifier.
+  \item exact PRSA/BPRSA decreasing-anchor selection, 41-point phase averaging, population SDNN and local/long-range slope equations;
+  \item 80-beat warm-up behavior, causal prefix invariance, lead-polarity sensitivity restricted to BPRSA, detector support versus mathematical definition, explicit ECG R-amplitude sampling, numerical-quality fields, and invalid-input rejection;
+  \item clinical-demo serialization and the 31-column time-aligned matrix, including 25 core values, six PRSA/BPRSA context values, context-only role metadata, separate defined/reliable/usable flags, and explicit no-calibration/no-classifier provenance;
+  \item causal PRSA/BPRSA context joining, including proof that future context rows cannot leak backward and that unavailable or unreliable PRSA/BPRSA cannot change the core morphology--HRV validity gates.
+\end{itemize}
+
+Passing software tests establishes deterministic code behavior, not clinical validity.
+
+\section{Reproduction map}
+\label{sec:reproduction}
+
+\subsection{Source modules}
+
+\begin{itemize}
+  \item \pathcode{src/ecg_cascade/morphology.py}: frozen Varon lane, patient mean-total wrapper, required symmetric-width calibration/wrapper, and independent-side patient asymmetric calibration/wrapper.
+  \item \pathcode{src/ecg_cascade/patient_template_morphology.py}: midpoint cycles, resampling, baseline, normalization, template bank, residuals, correlation, derivative-DTW.
+  \item \pathcode{src/ecg_cascade/prominence_morphology.py}: prominence delineation and interpretable P--QRS--T feature table.
+  \item \pathcode{src/ecg_cascade/prsa_bprsa.py}: exact 80-beat PRSA/BPRSA tracks, phase averaging, six features, curves, lead provenance, detector support, and numerical-quality flags.
+  \item \pathcode{src/ecg_cascade/fusion.py}: reusable causal morphology--HRV join with optional, separately gated \texttt{prsa\_context\_*} columns.
+  \item \pathcode{src/ecg_cascade/clinical_demo_data.py} and \pathcode{src/ecg_cascade/web_demo/}: causal 25-core-plus-six-context column join, PRSA/BPRSA serialization, live curves, metrics, filtering, role-aware glossary, and CSV export.
+  \item \pathcode{src/ecg_cascade/delineation_validation.py}: reference/prediction association and landmark scoring.
+  \item \pathcode{src/ecg_cascade/morphology_validation.py}: detector-to-feature fidelity utilities.
+\end{itemize}
+
+\subsection{Commands}
+
+\begin{lstlisting}
+.\.venv\Scripts\python.exe scripts\benchmark_morphology_fidelity.py ^
+  --output outputs\morphology_fidelity_all48_v1
+
+.\.venv\Scripts\python.exe scripts\benchmark_delineation_gate.py ^
+  --methods dwt cwt ^
+  --output outputs\delineation_gate_matched_lead_v1
+
+.\.venv\Scripts\python.exe scripts\analyze_varon_fixed_qrs_capture.py ^
+  --output outputs\delineation_gate_matched_lead_v1
+
+.\.venv\Scripts\python.exe scripts\benchmark_patient_average_varon_capture.py ^
+  --output outputs\patient_symmetric_varon_capture_v2
+
+.\.venv\Scripts\python.exe scripts\benchmark_patient_asymmetric_varon_capture.py ^
+  --output outputs\patient_asymmetric_varon_capture_v3
+
+.\.venv\Scripts\python.exe scripts\benchmark_delineation_gate.py ^
+  --methods prominence ^
+  --output outputs\delineation_gate_prominence_matched_lead_v1
+
+.\.venv\Scripts\python.exe scripts\run_patient_template_morphology.py ^
+  --record "C:\path\mit-bih-arrhythmia-database-1.0.0\100" ^
+  --channel 0 --duration-s 60 --calibration-beats 20 ^
+  --patient-id mitdb_100 ^
+  --output outputs\patient_template_mitdb_100_60s_v1
+
+.\.venv\Scripts\python.exe scripts\benchmark_prsa_bprsa_available_data.py ^
+  --output outputs\prsa_bprsa_available_data_v1
+\end{lstlisting}
+
+The repository documentation used PowerShell continuation backticks; the listing above uses caret continuation for PDF safety. Arguments and output folders are the material reproduction details. Dataset-root arguments may be required by the local script configuration.
+
+\subsection{Machine-readable evidence}
+
+\begin{itemize}
+  \item \pathcode{outputs/morphology_fidelity_all48_v1/}: audit scope, matched beat timing, per-window fidelity, per-record summaries, pooled summary, and figure.
+  \item \pathcode{outputs/delineation_gate_matched_lead_v1/}: benchmark scope, record scope, failures, matched errors, record/pooled metrics, polarity strata, fixed-capture beat table and summary.
+  \item \pathcode{outputs/delineation_gate_prominence_matched_lead_v1/}: the equivalent prominence gate outputs.
+  \item \pathcode{outputs/patient_average_varon_capture_v1/}: exact mean-total negative result.
+  \item \pathcode{outputs/patient_symmetric_varon_capture_v2/}: total/mean/P95/max required-width calibrations and held-out capture.
+  \item \pathcode{outputs/patient_asymmetric_varon_capture_v3/}: exact sampled controls, per-record independent-side calibrations, per-beat held-out capture/miss/extra-signal and P/T-overlap geometry, pooled/macro summaries, skipped records, scope, and generated summary.
+  \item \pathcode{outputs/patient_template_mitdb_100_60s_v1/}: waveform arrays, template arrays, member counts, per-beat features, and run scope.
+  \item \pathcode{outputs/patient_template_mitdb_207_120s_v1/}: corresponding heterogeneous-morphology execution.
+  \item \pathcode{outputs/prsa_bprsa_available_data_v1/}: all-48 MIT expert-anchor feature rows, record and pooled availability/numerical-quality summaries, five-record lead/polarity comparisons, CHB04\_28 two-seizure feature rows, support-by-phase tables, descriptive separation output, metadata, and warning-bearing summary.
+  \item \pathcode{outputs/prsa_bprsa_context_audit_20260819/}: fresh all-48 rerun; all parsed MIT outputs exactly reproduce the earlier audit.
+  \item \pathcode{outputs/prsa_bprsa_context_matrix_audit_20260819/}: 211,308 causal exact/midpoint probes, per-record checks, and zero-mismatch summary.
+  \item \pathcode{outputs/prsa_bprsa_noise_fidelity_20260819/}: expert-anchor clean-versus-NSTDB BPRSA fidelity from +24 to -6 dB.
+  \item \pathcode{outputs/prsa_bprsa_arrhythmia_context_20260819/}: 105,654 windows aligned to 81-beat expert rhythm context.
+  \item \pathcode{outputs/prsa_bprsa_chb04_28_rerun_20260819/}: fresh two-seizure reliability rerun; all three parsed CHB result tables exactly reproduce the earlier audit.
+\end{itemize}
+
+\section{What the results do and do not establish}
+
+Established:
+
+\begin{itemize}
+  \item Candidate R-peak detectors can preserve the main Varon spectrum well on many MIT-BIH windows, but strict five-beat coverage and difficult-record failures matter.
+  \item A fixed 120-ms symmetric crop truncates 28.48\% of complete manual QRS complexes in the combined LUDB/QTDB audit.
+  \item Mean total QRS duration is not the right patient scalar for symmetric capture.
+  \item P95 of per-beat required symmetric width is a much better one-number patient challenger than mean total duration, especially with at least five calibration beats.
+  \item Separate pre/post-R P95 calibration is more crop-efficient than symmetric P95 in several tested settings, but three calibration beats are insufficient and five-beat capture still trails the wider symmetric P95 rule.
+  \item The tested prominence method gives complete QRS landmarks with substantially better QRS-onset behavior than the tested NeuroKit DWT/CWT methods in this gate.
+  \item A deterministic, patient/lead-specific full-cycle template bank can represent stable morphology and expose unseen morphology without a learned encoder.
+  \item The exact six-feature 80-beat PRSA/BPRSA extractor is mathematically available on all 105,654 eligible expert-anchor MIT-BIH windows; 99.1046\% pass the objective positive-resampled-RR gate.
+  \item RR-only PRSA is invariant to ECG lead amplitude sign, whereas R-amplitude-triggered BPRSA is strongly lead/polarity dependent and must retain lead-state provenance.
+  \item The causal matrix attachment passed 211,308 real-data probes with no time/value/flag mismatch, future leakage, or core-gate change.
+  \item RR-only PRSA was exactly invariant to calibrated waveform noise when expert R timestamps were fixed, whereas BPRSA correlation deteriorated to 0.0315 at -6 dB.
+  \item All 946 cubic-RR numerical failures occurred in 80-RR windows containing at least one non-normal expert beat; arrhythmia context is therefore mandatory for interpretation.
+  \item The CHB04\_28 execution proves that the software runs on seizure-labeled wearable-style ECG context, but also shows that detector disagreement can dominate the seizure interval: zero ictal windows passed strict support.
+\end{itemize}
+
+Not established:
+
+\begin{itemize}
+  \item no morphology lane has been shown to predict or detect seizures;
+  \item no incremental value beyond RR/HRV has been measured;
+  \item no optimal calibration length, P95 rule, template threshold, template count, or DTW band has been established;
+  \item no independently validated signal-quality eligibility rule yet distinguishes morphology novelty from artifact;
+  \item the implemented detector/numerical PRSA reliability flag does not detect R-amplitude corruption when expert R timestamps remain stable; BPRSA still needs separately attached signal-quality context;
+  \item no cross-lead universal template is supported;
+  \item no cross-lead universal BPRSA baseline is supported;
+  \item the unfiltered CHB04 direction-free window AUC values are not seizure accuracy because windows overlap and no ictal window passed strict detector support;
+  \item MIT-BIH beat labels are not QRS-boundary or seizure ground truth;
+  \item LUDB/QTDB short-record boundary results do not simulate hours-long causal personalization.
+\end{itemize}
+
+\section{Required next experiments}
+\label{sec:next}
+
+The next sequence should preserve causal separation and pure signal processing:
+
+\begin{enumerate}
+  \item Freeze the current source commit and saved outputs as controls.
+  \item Add an explicit feature-schema/version manifest so every column has units, missingness rules, lead identity, and calibration provenance.
+  \item Run the full-cycle template branch over all 48 MIT-BIH records using header-verified lead names. Stratify by beat symbol only for interpretation.
+  \item Perform a development/test-separated sensitivity study for asymmetric safety margins, calibration length beyond 20 beats, P95 definition, template threshold, maximum template count, and DTW band. Never select and report a setting on the same later beats.
+  \item Causally attach the implemented signal-quality measurements to the offline matrix; keep SQI separate from morphology novelty and do not create a binary artifact veto until an independently labelled artifact dataset validates it.
+  \item Add a PRSA resampling ablation that compares the frozen cubic-spline control with a causal shape-preserving PCHIP or bounded alternative. Select no replacement until chronological seizure-free false-alarm and physiology-preservation endpoints are specified.
+  \item Implement rolling residual/DTW dispersion and template-transition features using past-only windows.
+  \item Keep the implemented P95-before/P95-after crop separate from the frozen control. Next compare its Gram-feature stability with symmetric P95 and implement the stronger per-beat delineated two-part-resampled QRS only as another explicit ablation \cite{martinez2004,illanes2007,singh2013,lorenz2021}.
+  \item Optionally implement a faithful Martinez-style wavelet or integrate ECGdeli if a reproducible classical toolchain is available; run the identical LUDB/QTDB gate \cite{martinez2004,ecgdeli}.
+  \item Extend the implemented demonstration join into the offline experiment table using shared causal R-anchor IDs without erasing 100-RR HRV, 80-beat PRSA/BPRSA, or morphology lane identity.
+  \item On seizure datasets, create a chronological calibration interval and frozen evaluation interval per patient. Exclude seizure/preictal data from normal calibration when labels allow.
+  \item Compare RR/HRV-only, fixed Varon-only, patient-width Varon-only, prominence-only, template-only, and explicit combinations.
+  \item Before evaluating PRSA/BPRSA seizure value, improve or manually audit R anchors on CHB04 and require a prespecified support gate. Report both all-window and supported-window results; if supported ictal coverage is zero, the clinical endpoint is unevaluable rather than negative or positive.
+  \item Report coverage, seizure/event sensitivity, PPV, false alarms per 24 hours, latency, and time in warning. AUROC alone is insufficient.
+\end{enumerate}
+
+Random beat/window k-fold validation is rejected for the final seizure claim because overlapping windows, repeated patient morphology, and future-to-past leakage can produce optimistic results. Published evidence shows an example ROC-AUC decline from 0.823 under non-causal evaluation to approximately 0.56 under chronological pseudo-prospective testing \cite{kalousios}. Personalized HRV results in selected autonomic responders support combination with RR/HRV, not replacement of that branch \cite{jeppesen}.
+
+\section{Final branch decision}
+
+The branch should continue with the morphology lanes and two autonomic sublanes visible:
+
+\begin{enumerate}
+  \item keep fixed 120-ms Varon as the unmodified published control;
+  \item retain mean-total-width Varon only as a documented negative control;
+  \item use P95 required symmetric width as the patient-specific Varon challenger, with at least five earlier clean same-lead calibration beats and fixed-120 fallback;
+  \item retain the full-cycle patient template bank for shape novelty and prominence features for interpretable P--QRS--T measurements;
+  \item keep RR/HRV separate but aligned, then test combinations causally;
+  \item retain the new Varon PRSA/BPRSA extractor beside the 100-RR HRV lane, with no calibration, explicit 80-beat warm-up, stable lead/polarity provenance for BPRSA, numerical/detector reliability gates, and separately attached signal-quality/rhythm context before BPRSA model eligibility;
+  \item do not add learned encoders during the current manual signal-processing feature-matrix phase.
+\end{enumerate}
+
+The most important conceptual correction is that ``average QRS duration'' and ``symmetric width required around R'' are different quantities. The most important architectural correction is that a morphology branch does not need to bet everything on one delineator: the published fixed control, patient boundary width, full-cycle template residuals, and interpretable landmarks can be audited independently and later combined only if chronological evidence justifies it.
+
+\appendix
+
+\section{Exact main-function defaults}
+
+\texttt{extract\_varon\_morphology}
+
+\hspace*{1em}\texttt{segment\_start\_s=0}, \texttt{orientation="original"},
+\texttt{pre\_r\_ms=60}, \texttt{post\_r\_ms=60},
+\texttt{stack\_beats=5}, and \texttt{reliable\_support\_coverage=1}.
+Stack sizes other than five raise an error.
+
+\texttt{extract\_patient\_average\_varon\_morphology}
+
+\hspace*{1em}Requires patient ID, lead name, and a positive finite
+one-dimensional duration array. It uses arithmetic mean total duration and
+equal halves.
+
+\texttt{calibrate\_patient\_symmetric\_varon\_width}
+
+\hspace*{1em}The statistic defaults to \texttt{p95}; supported values are
+\texttt{mean}, \texttt{p95}, and \texttt{max}. Boundary arrays must be equal,
+non-empty, finite, and non-negative.
+
+\texttt{extract\_patient\_template\_morphology}
+
+\hspace*{1em}\texttt{pre\_r\_points=64}, \texttt{post\_r\_points=128},
+\texttt{calibration\_beats=20}, \texttt{dtw\_band\_fraction=0.10},
+\texttt{max\_templates=3}, correlation threshold 0.90, and original
+orientation. The function requires more complete cycles than calibration
+beats.
+
+\texttt{extract\_prominence\_morphology}
+
+\hspace*{1em}Original orientation, NeuroKit cleaning, prominence delineation,
+and \texttt{check=False}; patient and lead identifiers are required.
+
+\texttt{calculate\_prsa\_bprsa\_feature\_arrays}
+
+\hspace*{1em}\texttt{window\_size=80}, \texttt{resample\_hz=4.0},
+\texttt{half\_window\_samples=20}, and
+\texttt{reliable\_coverage=1.0}. The ECG wrapper additionally defaults to
+\texttt{segment\_start\_s=0.0}, \texttt{orientation="original"},
+\texttt{lead\_name="unknown"}, and
+\texttt{anchor\_track="unspecified"}. At least two R peaks are required to
+construct one RR interval; 80 RR-defined beats are required for a feature row.
+
+\section{Exact output-column schemas}
+
+The following lists freeze the current programmatic column names. They are
+included to prevent a future implementation from silently changing feature
+semantics while keeping a similar human-readable label.
+
+\subsection{Varon per-beat columns}
+
+\begin{lstlisting}
+beat_index, anchor_track, anchor_sample_in_segment, anchor_time_s,
+capture_start_sample_in_segment, capture_end_sample_exclusive_in_segment,
+qrs_capture_complete, waveform_row_index, detector_support_available,
+qrs_supported, comparator_match_count, comparator_offset_ms,
+zhai_correlation, zhai_absolute_correlation, reference_symbol,
+reference_match_error_ms, exploratory_anchor_amplitude,
+exploratory_peak_to_peak_amplitude, exploratory_waveform_rms,
+exploratory_max_abs_slope_per_s
+\end{lstlisting}
+
+\subsection{Varon five-beat columns}
+
+\begin{lstlisting}
+morphology_window_index, anchor_track, start_beat_index, end_beat_index,
+start_anchor_sample_in_segment, end_anchor_sample_in_segment,
+window_start_time_s, window_end_time_s, window_elapsed_s,
+five_anchor_samples, beat_count, complete_capture_count,
+complete_capture_fraction, qrs_window_truncation_present,
+published_varon_core_defined, detector_support_context_available,
+supported_beat_count, detector_support_fraction, support_context_pass,
+window_has_detector_disagreement, median_absolute_detector_offset_ms,
+maximum_absolute_detector_offset_ms, minimum_zhai_absolute_correlation,
+median_zhai_absolute_correlation, reference_label_context_available,
+reference_symbols, reference_symbol_transition_count,
+reference_non_n_beat_count, delineation_available, delineation_method,
+seizure_probability_produced, artifact_label_produced,
+lambda1, lambda2, lambda3, lambda4, lambda5, eigenvalue_total_energy,
+exploratory_lambda1_energy_fraction,
+exploratory_lambda3_to_5_energy_fraction
+\end{lstlisting}
+
+\subsection{Full-cycle template columns}
+
+\begin{lstlisting}
+beat_index, anchor_sample_in_segment, anchor_time_s,
+cycle_start_sample_in_segment, cycle_end_sample_exclusive_in_segment,
+pre_r_cycle_ms, post_r_cycle_ms, cycle_duration_ms, baseline_amplitude,
+anchor_amplitude_from_baseline, peak_to_peak_amplitude, waveform_rms,
+anchor_track, patient_id, lead_name, waveform_row_index,
+calibration_member, evaluation_eligible, matched_template_index,
+matched_template_calibration_members, template_correlation,
+template_normalized_rmse, template_raw_residual_rms,
+template_raw_residual_energy, template_derivative_dtw_cost,
+template_dtw_warp_fraction, previous_beat_normalized_rmse,
+previous_beat_correlation, seizure_probability_produced,
+artifact_label_produced, reference_symbol
+\end{lstlisting}
+
+\subsection{Prominence feature columns}
+
+\begin{lstlisting}
+beat_index, anchor_track, patient_id, lead_name,
+r_peak_sample_in_segment, r_peak_time_s,
+p_onset_sample_in_segment, p_peak_sample_in_segment,
+p_offset_sample_in_segment, qrs_onset_sample_in_segment,
+qrs_offset_sample_in_segment, t_onset_sample_in_segment,
+t_peak_sample_in_segment, t_offset_sample_in_segment,
+landmark_availability_fraction, complete_p, complete_qrs, complete_t,
+complete_pqrst, physiological_order_valid, p_duration_ms,
+pr_interval_ms, qrs_duration_ms, st_interval_ms, qt_interval_ms,
+r_to_t_peak_ms, baseline_amplitude, p_peak_amplitude_from_baseline,
+r_anchor_amplitude_from_baseline, t_peak_amplitude_from_baseline,
+qrs_peak_to_peak_amplitude, qrs_signed_area, qrs_polarity,
+seizure_probability_produced, artifact_label_produced
+\end{lstlisting}
+
+\subsection{PRSA/BPRSA per-beat columns}
+
+\begin{lstlisting}
+end_time_s, rr_ms, r_peak_amplitude, window_beat_count,
+window_start_time_s, window_end_time_s, window_elapsed_s,
+mean_rr80_ms, sdnn80_ms, prsa_s_rr_ms_per_sample,
+prsa_delta_rr_ms_per_sample, bprsa_s_r_ms_per_sample,
+bprsa_delta_r_ms_per_sample, prsa_anchor_count, bprsa_anchor_count,
+resampled_sample_count, resampled_rr_nonpositive_count,
+rr_cubic_range_overshoot_fraction,
+r_amplitude_cubic_range_overshoot_fraction,
+numerical_quality_pass, rr_reliability_coverage,
+r_amplitude_reliability_coverage, feature_defined, feature_reliable,
+time_s, r_peak_sample_in_segment, r_peak_sample_in_file
+\end{lstlisting}
+
+The accompanying result object contains
+\texttt{curve\_time\_s}, \texttt{prsa\_curves\_ms}, and
+\texttt{bprsa\_curves\_ms}; each curve row has 41 samples. Warm-up or
+undefined rows are all-NaN curves in the Python result and empty curve arrays
+in the browser payload.
+
+\subsection{PRSA/BPRSA columns after fusion-context attachment}
+
+The reusable fusion table prefixes every source field with
+\texttt{prsa\_context\_}. The principal matrix columns are:
+\begin{lstlisting}
+prsa_context_measurement_time_s, prsa_context_age_s,
+prsa_context_available, prsa_context_defined,
+prsa_context_reliable, prsa_context_computationally_usable,
+prsa_context_signal_quality_attached, prsa_context_model_eligible,
+prsa_context_role, prsa_context_affects_core_fusion_gate,
+prsa_context_mean_rr80_ms, prsa_context_sdnn80_ms,
+prsa_context_prsa_s_rr_ms_per_sample,
+prsa_context_prsa_delta_rr_ms_per_sample,
+prsa_context_bprsa_s_r_ms_per_sample,
+prsa_context_bprsa_delta_r_ms_per_sample
+\end{lstlisting}
+The remaining prefixed audit fields retain window bounds, anchor counts,
+spline overshoot, support coverage, and numerical quality. The role is the
+literal \texttt{autonomic\_cardiorespiratory\_context\_only}; the core-gate
+field is always false.
+
+\section{Known design risks}
+
+\begin{itemize}
+  \item The current Varon sample builder ignores requested pre/post proportions after summing them.
+  \item R-anchor errors propagate into every lane; detector accuracy must be measured jointly with five-beat coverage and conditional morphology error.
+  \item Median templates are robust to some outliers but can blur multiple valid morphologies; the small bank helps but can create singleton clusters.
+  \item Unit-$L_2$ normalization suppresses amplitude by design; raw residuals must remain beside normalized shape features.
+  \item Full-cycle interpolation can smooth sharp content and changes sampling density as RR varies; original duration fields must remain visible.
+  \item Zero-lag correlation can punish small anchor errors; lag alignment could hide meaningful temporal change. Both require an ablation.
+  \item DDTW permits local warping and can similarly hide or tolerate timing shifts depending on band choice.
+  \item Prominence landmarks can be complete yet biased; 100\% sensitivity/PPV is not 0-ms error.
+  \item P/T ground truth and visibility vary by dataset and lead.
+  \item A personalized baseline can be contaminated by seizures, preictal data, artifact, ectopy, or a lead change if calibration is not controlled.
+  \item Overlapping five-beat or rolling windows create correlated samples and require purging at split boundaries.
+  \item PRSA/BPRSA windows overlap 79 of 80 beats, so ordinary random row splits are invalid.
+  \item Cubic-spline RR interpolation can overshoot into nonpositive values around extreme RR patterns. The current gate exposes this but does not establish that cubic splines are the best deployment interpolation.
+  \item BPRSA can change sign or structure after global polarity inversion or lead change because its anchor driver is R-peak amplitude; same-lead/polarity state is mandatory.
+  \item R-peak disagreement corrupts both RR and the R-amplitude driver. The CHB04 audit showed zero strict reliable ictal windows despite mathematically finite features.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{99}
+
+\bibitem{varon2015}
+C. Varon et al., ``Detection of epileptic seizures by means of morphological changes in the ECG,'' \emph{Journal of Electrocardiology}, 2015. \url{https://doi.org/10.1016/j.jelectrocard.2015.08.020}
+
+\bibitem{varon2013}
+C. Varon et al., 2013 Computing in Cardiology paper containing the earlier 80-ms QRS setting. \url{https://cinc.org/archives/2013/pdf/0863.pdf}
+
+\bibitem{emrich2024}
+J. Emrich et al., ``Physiology-informed ECG delineation based on peak prominence,'' EUSIPCO, 2024. \url{https://eurasip.org/Proceedings/Eusipco/Eusipco2024/pdfs/0001402.pdf}
+
+\bibitem{martinez2004}
+J. P. Martinez et al., ``A wavelet-based ECG delineator: evaluation on standard databases,'' \emph{IEEE Transactions on Biomedical Engineering}, 2004. \url{https://doi.org/10.1109/TBME.2003.821031}
+
+\bibitem{illanes2007}
+A. Illanes Manriquez and Q. Zhang, ``An algorithm for QRS onset and offset detection in single lead electrocardiogram records,'' \emph{Annual International Conference of the IEEE Engineering in Medicine and Biology Society}, 2007. \url{https://doi.org/10.1109/IEMBS.2007.4352347}
+
+\bibitem{dimarco2011}
+L. Y. Di Marco and L. Chiari, ``A wavelet-based ECG delineation algorithm for 32-bit integer online processing,'' \emph{BioMedical Engineering OnLine}, vol. 10, 23, 2011. \url{https://doi.org/10.1186/1475-925X-10-23}
+
+\bibitem{singh2013}
+Y. N. Singh and S. K. Singh, ``Identifying Individuals Using Eigenbeat Features of Electrocardiogram,'' \emph{Journal of Engineering}, 2013, 539284. The QRS window is fixed at 80 ms before and 100 ms after the R fiducial. \url{https://doi.org/10.1155/2013/539284}
+
+\bibitem{lorenz2021}
+N. J. Lorenz et al., ``Quantitative assessment of ventricular far field removal techniques for clinical unipolar electrograms,'' \emph{Current Directions in Biomedical Engineering}, vol. 7, no. 2, pp. 243--246, 2021. This is a patient-specific asymmetric-window precedent in a different signal and task. \url{https://doi.org/10.1515/cdbme-2021-2062}
+
+\bibitem{ecgdeli}
+N. Pilia et al., ``ECGdeli - An open source ECG delineation toolbox for MATLAB,'' \emph{SoftwareX}, vol. 13, 100639, 2021. \url{https://doi.org/10.1016/j.softx.2020.100639}
+
+\bibitem{ecgdelicode}
+ECGdeli source repository. \url{https://github.com/ElsevierSoftwareX/SOFTX-D-20-00010}
+
+\bibitem{joung2024}
+J. Joung et al., ``Deep learning based ECG segmentation for delineation of diverse arrhythmias,'' \emph{PLOS ONE}, vol. 19, e0303178, 2024. \url{https://doi.org/10.1371/journal.pone.0303178}
+
+\bibitem{hidc2026}
+``HiDC-QRS,'' multiscale single-lead QRS boundary method, 2026. \url{https://doi.org/10.1016/j.bspc.2026.110015}
+
+\bibitem{motif2026}
+R. Bijlani and M. Villarroel, ``Motif-based morphology signatures for interpretable ECG screening and monitoring,'' 2026. \url{https://arxiv.org/abs/2606.00107}
+
+\bibitem{adaptiveqrs}
+D. Castro, P. Felix, and J. Presedo, ``A method for context-based adaptive QRS clustering in real-time,'' 2014. The method uses sequential templates and derivative dynamic time warping. \url{https://arxiv.org/abs/1410.7211}
+
+\bibitem{pediatric2021}
+F. Cheung, P. L. Pearl, and C. Stamoulis, ``Novel Seizure Biomarkers in Continuous Electrocardiograms from Pediatric Epilepsy Patients,'' \emph{Annual International Conference of the IEEE Engineering in Medicine and Biology Society}, pp. 382--385, 2021. \url{https://doi.org/10.1109/EMBC46164.2021.9629760}
+
+\bibitem{heartlang}
+``Reading Your Heart: Learning ECG Words and Sentences via Pre-training ECG Language Model,'' 2025. \url{https://arxiv.org/abs/2502.10707}
+
+\bibitem{rhythmbert}
+``RhythmBERT,'' 2026. \url{https://arxiv.org/abs/2602.23060}
+
+\bibitem{beatssl}
+``Beat-SSL,'' 2026. \url{https://arxiv.org/abs/2601.16147}
+
+\bibitem{supervisedpqrst}
+``Electrocardiogram (ECG)-Based Seizure Detection Using Supervised Machine-Learning,'' 2025. \url{https://www.sciencedirect.com/science/article/pii/S0987705325000565}
+
+\bibitem{seizeit22025}
+C. Reintjes et al., ``ECG-Based Detection of Epileptic Seizures in Real-World Wearable Settings: Insights from the SeizeIT2 Dataset,'' \emph{Sensors}, vol. 25, no. 24, 7687, 2025. \url{https://doi.org/10.3390/s25247687}
+
+\bibitem{clifford2012}
+G. D. Clifford, J. Behar, Q. Li, and I. Rezek, ``Signal quality indices and data fusion for determining clinical acceptability of electrocardiograms,'' \emph{Physiological Measurement}, vol. 33, no. 9, pp. 1419--1433, 2012. \url{https://doi.org/10.1088/0967-3334/33/9/1419}
+
+\bibitem{platformcwt2025}
+F. Martinez-Suarez, C. Alvarado-Serrano, and O. Casas, ``Platform for detecting, managing, and manipulating characteristic points of the ECG waves through continuous wavelet transform implementation,'' \emph{Biomedical Physics and Engineering Express}, vol. 11, no. 2, 2025. \url{https://doi.org/10.1088/2057-1976/adb589}
+
+\bibitem{ahaqrs2009}
+B. Surawicz et al., ``AHA/ACCF/HRS Recommendations for the Standardization and Interpretation of the Electrocardiogram: Part III: Intraventricular Conduction Disturbances,'' \emph{Journal of the American College of Cardiology}, vol. 53, no. 11, pp. 976--981, 2009. \url{https://doi.org/10.1016/j.jacc.2008.12.013}
+
+\bibitem{ahaqt2009}
+P. M. Rautaharju et al., ``AHA/ACCF/HRS Recommendations for the Standardization and Interpretation of the Electrocardiogram: Part IV: The ST Segment, T and U Waves, and the QT Interval,'' \emph{Journal of the American College of Cardiology}, vol. 53, no. 11, pp. 982--991, 2009. \url{https://doi.org/10.1016/j.jacc.2008.12.014}
+
+\bibitem{kalousios}
+Chronological pseudo-prospective seizure-prediction evaluation study. \url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11803288/}
+
+\bibitem{jeppesen}
+Prospective personalized HRV-threshold wearable seizure study. \url{https://pmc.ncbi.nlm.nih.gov/articles/PMC12516532/}
+
+\end{thebibliography}
+
+\end{document}
