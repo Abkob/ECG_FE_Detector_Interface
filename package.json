@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:blob": "node --test api/blob.test.js"
+    "test:blob": "node --test tests/node/blob.test.js"
   },
   "dependencies": {
     "@vercel/blob": "2.8.0"

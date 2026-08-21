@@ -20,6 +20,7 @@ feature_extraction/outputs
 feature_extraction/reports
 feature_extraction/scripts
 feature_extraction/tests
+/tests
 feature_extraction/tmp
 **/__pycache__
 **/*.pyc

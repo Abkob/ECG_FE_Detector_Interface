@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { validateBlobPath, validateUploadRequest } from "./blob.js";
+import { validateBlobPath, validateUploadRequest } from "../../api/blob.js";
 
 test("accepts supported ECG uploads within the hosted size limit", () => {
   assert.deepEqual(
