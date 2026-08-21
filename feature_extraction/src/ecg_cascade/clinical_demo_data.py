@@ -183,8 +183,8 @@ def load_signal_segment(
 
     if not np.isfinite(start_s) or start_s < 0:
         raise ValueError("Segment start must be a non-negative number of seconds.")
-    if not np.isfinite(duration_s) or not 3 <= duration_s <= 300:
-        raise ValueError("Segment duration must be between 3 and 300 seconds.")
+    if not np.isfinite(duration_s) or duration_s < 3:
+        raise ValueError("Segment duration must be at least 3 seconds.")
     if channel not in source.channels:
         raise ValueError(f"Unknown channel {channel!r}; choose one shown in the app.")
     channel_unit = source.channel_units[source.channels.index(channel)]

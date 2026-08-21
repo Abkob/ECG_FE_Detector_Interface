@@ -34,7 +34,7 @@ MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 HOSTED_BLOB_FILE_BYTES = 16 * 1024 * 1024
 HOSTED_BLOB_FILE_COUNT = 3
 ALLOWED_UPLOAD_SUFFIXES = {".edf", ".hea", ".dat", ".atr", ".csv", ".txt"}
-HOSTED_MAX_DURATION_S = 120.0
+DEFAULT_DURATION_S = 120.0
 
 
 @dataclass
@@ -261,12 +261,7 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
             else None
         )
         source = self._source_for_body(body)
-        duration_s = _float(body, "duration_s", default=120.0)
-        if _hosted_mode() and duration_s > HOSTED_MAX_DURATION_S:
-            raise ValueError(
-                f"The hosted demo supports segments up to "
-                f"{HOSTED_MAX_DURATION_S:.0f} seconds."
-            )
+        duration_s = _float(body, "duration_s", default=DEFAULT_DURATION_S)
         segment = load_signal_segment(
             source,
             channel=_string(body, "channel"),
@@ -393,7 +388,8 @@ def _runtime_capabilities() -> dict[str, Any]:
     uploads = not hosted or blob_configured
     return {
         "uploads": uploads,
-        "max_duration_s": HOSTED_MAX_DURATION_S if hosted else 300.0,
+        "default_duration_s": DEFAULT_DURATION_S,
+        "max_duration_s": None,
         "deployment": "vercel" if hosted else "local",
         "upload_mode": (
             "private_blob"

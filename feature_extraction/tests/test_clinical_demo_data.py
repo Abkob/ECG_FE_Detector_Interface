@@ -151,6 +151,30 @@ def test_csv_time_column_infers_rate_and_preview_is_finite(tmp_path: Path):
     assert all(np.isfinite(preview["values"]))
 
 
+def test_segment_duration_has_no_artificial_upper_limit(tmp_path: Path):
+    path = tmp_path / "signal.csv"
+    time = np.arange(0.0, 5.0, 1.0 / 100.0)
+    signal = np.sin(2 * np.pi * 1.2 * time)
+    path.write_text(
+        "time_s,ECG\n"
+        + "\n".join(
+            f"{t:.5f},{value:.8f}"
+            for t, value in zip(time, signal, strict=True)
+        ),
+        encoding="utf-8",
+    )
+
+    source = inspect_signal_source(path)
+    segment = load_signal_segment(
+        source,
+        channel="ECG",
+        start_s=0.0,
+        duration_s=3_600.0,
+    )
+
+    assert segment.duration_s == pytest.approx(5.0)
+
+
 def test_feature_matrix_definitions_keep_morphology_and_hrv_visibly_separate():
     definitions = feature_definitions()
     assert [item["label"] for item in definitions[:5]] == ["λ1", "λ2", "λ3", "λ4", "λ5"]

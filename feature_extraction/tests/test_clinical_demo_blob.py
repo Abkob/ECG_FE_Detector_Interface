@@ -33,6 +33,8 @@ def test_hosted_capabilities_enable_private_blob(monkeypatch: pytest.MonkeyPatch
     assert capabilities["uploads"] is True
     assert capabilities["upload_mode"] == "private_blob"
     assert capabilities["max_upload_bytes"] == 16 * 1024 * 1024
+    assert capabilities["default_duration_s"] == 120.0
+    assert capabilities["max_duration_s"] is None
 
 
 def test_blob_source_token_is_scoped_to_browser_session() -> None:

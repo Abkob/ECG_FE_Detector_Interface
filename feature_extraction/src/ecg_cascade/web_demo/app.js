@@ -39,7 +39,8 @@ const state = {
   matrixGroup: "all",
   capabilities: {
     uploads: ["127.0.0.1", "localhost"].includes(window.location.hostname),
-    max_duration_s: 300,
+    default_duration_s: 120,
+    max_duration_s: null,
     deployment: ["127.0.0.1", "localhost"].includes(window.location.hostname) ? "local" : "hosted",
     upload_mode: ["127.0.0.1", "localhost"].includes(window.location.hostname) ? "local_filesystem" : "unavailable",
   },
@@ -247,8 +248,12 @@ function applyCapabilities(capabilities) {
       ? "Private Blob · up to 3 files · ≤16 MB/file · deleted after analysis"
       : "EDF · WFDB (.hea + .dat) · numeric CSV"
     : "Prepared example only · private upload storage unavailable";
-  const maxDuration = Number(state.capabilities.max_duration_s) || 300;
-  $("#durationInput").max = String(maxDuration);
+  const maxDuration = Number(state.capabilities.max_duration_s);
+  if (Number.isFinite(maxDuration) && maxDuration >= 3) {
+    $("#durationInput").max = String(maxDuration);
+  } else {
+    $("#durationInput").removeAttribute("max");
+  }
 }
 
 function applySource(source, sourceToken = null) {
@@ -269,8 +274,8 @@ function applySource(source, sourceToken = null) {
   channelSelect.disabled = false;
   $("#startInput").disabled = false;
   $("#durationInput").disabled = false;
-  const maxDuration = Number(state.capabilities.max_duration_s) || 300;
-  $("#durationInput").value = Math.max(3, Math.min(120, maxDuration, Math.floor(source.duration_s || 120)));
+  const defaultDuration = Number(state.capabilities.default_duration_s) || 120;
+  $("#durationInput").value = Math.max(3, Math.min(defaultDuration, Math.floor(source.duration_s || defaultDuration)));
   $("#samplingRateField").hidden = source.kind !== "CSV";
   if (source.sampling_rate_hz) $("#samplingRateInput").value = formatNumber(source.sampling_rate_hz, 4);
   $("#previewButton").disabled = false;
