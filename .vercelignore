@@ -1,6 +1,9 @@
 .git
+.github
+node_modules
 .pytest_cache
 .vercel
+.vercel_python_packages
 archive
 output
 public

@@ -13,7 +13,9 @@ import shutil
 import tempfile
 import threading
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlparse, urlsplit
+from urllib.request import Request, urlopen
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -29,6 +31,8 @@ from .clinical_demo_persistence import DemoPersistence
 
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+HOSTED_BLOB_FILE_BYTES = 16 * 1024 * 1024
+HOSTED_BLOB_FILE_COUNT = 3
 ALLOWED_UPLOAD_SUFFIXES = {".edf", ".hea", ".dat", ".atr", ".csv", ".txt"}
 HOSTED_MAX_DURATION_S = 120.0
 
@@ -172,23 +176,39 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True, "filename": filename, "bytes": length})
 
     def _inspect(self, body: dict[str, Any]) -> None:
+        session_id = _string(body, "session")
+        session = self.server.state.session(session_id, create=_hosted_mode())
+        source_token: dict[str, Any] | None = None
         if _hosted_mode():
-            raise ValueError(
-                "Uploads are disabled on the public research demo. "
-                "Run the application locally for private or patient ECG files."
-            )
-        session = self.server.state.session(_string(body, "session"), create=False)
-        filenames = body.get("files")
-        if not isinstance(filenames, list) or not filenames:
-            raise ValueError("Select an EDF, WFDB, or CSV signal file.")
-        candidates = [(session.directory / Path(str(name)).name) for name in filenames]
+            source_token = _validated_blob_source_token(body.get("blobs"), session_id)
+            candidates = _materialize_blob_files(session, source_token)
+        else:
+            filenames = body.get("files")
+            if not isinstance(filenames, list) or not filenames:
+                raise ValueError("Select an EDF, WFDB, or CSV signal file.")
+            candidates = [(session.directory / Path(str(name)).name) for name in filenames]
         primary = _choose_primary_source(candidates)
         source = inspect_signal_source(
             primary,
             csv_sampling_rate_hz=_optional_float(body.get("csv_sampling_rate_hz")),
         )
         session.source = source
-        self._json(200, {"session": session.identifier, "source": source.to_public_dict()})
+        payload: dict[str, Any] = {
+            "session": session.identifier,
+            "source": source.to_public_dict(),
+            "source_token": source_token,
+        }
+        if source_token is not None:
+            saved = self.server.state.persistence.record_session(
+                session_id,
+                source_token="private_blob",
+                source_metadata=payload["source"],
+            )
+            payload["persistence"] = {
+                **self.server.state.persistence.public_status(),
+                "session_saved": saved,
+            }
+        self._json(200, payload)
 
     def _demo(self, body: dict[str, Any]) -> None:
         session_id = _string(body, "session")
@@ -235,6 +255,11 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
 
     def _analyze(self, body: dict[str, Any]) -> None:
         session_id = _string(body, "session")
+        blob_source_token = (
+            _validated_blob_source_token(body.get("source_token"), session_id)
+            if isinstance(body.get("source_token"), dict)
+            else None
+        )
         source = self._source_for_body(body)
         duration_s = _float(body, "duration_s", default=120.0)
         if _hosted_mode() and duration_s > HOSTED_MAX_DURATION_S:
@@ -258,11 +283,7 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
         )
         saved, analysis_id = self.server.state.persistence.record_analysis(
             session_id,
-            source_token=(
-                str(body.get("source_token"))
-                if body.get("source_token") is not None
-                else None
-            ),
+            source_token=("private_blob" if blob_source_token else body.get("source_token")),
             request_metadata={
                 "channel": body.get("channel"),
                 "start_s": body.get("start_s", 0.0),
@@ -272,6 +293,7 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
             },
             analysis=payload,
         )
+        source_released = _delete_blob_files(blob_source_token) if blob_source_token else False
         self._json(
             200,
             {
@@ -281,6 +303,7 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
                     "analysis_saved": saved,
                     "analysis_id": analysis_id,
                 },
+                "source_released": source_released,
             },
         )
 
@@ -290,6 +313,18 @@ class ClinicalDemoHandler(BaseHTTPRequestHandler):
             if not path.is_file():
                 raise FileNotFoundError("The bundled MIT-BIH demo record is not available.")
             return inspect_signal_source(path)
+        if isinstance(body.get("source_token"), dict):
+            session_id = _string(body, "session")
+            source_token = _validated_blob_source_token(body.get("source_token"), session_id)
+            session = self.server.state.session(session_id)
+            candidates = _materialize_blob_files(session, source_token)
+            primary = _choose_primary_source(candidates)
+            source = inspect_signal_source(
+                primary,
+                csv_sampling_rate_hz=_optional_float(body.get("csv_sampling_rate_hz")),
+            )
+            session.source = source
+            return source
         session = self.server.state.session(_string(body, "session"), create=False)
         return _session_source(session)
 
@@ -354,16 +389,155 @@ def _hosted_mode() -> bool:
 
 def _runtime_capabilities() -> dict[str, Any]:
     hosted = _hosted_mode()
+    blob_configured = bool(os.environ.get("BLOB_STORE_ID", "").strip())
+    uploads = not hosted or blob_configured
     return {
-        "uploads": not hosted,
+        "uploads": uploads,
         "max_duration_s": HOSTED_MAX_DURATION_S if hosted else 300.0,
         "deployment": "vercel" if hosted else "local",
+        "upload_mode": (
+            "private_blob"
+            if hosted and blob_configured
+            else "unavailable"
+            if hosted
+            else "local_filesystem"
+        ),
+        "max_upload_bytes": HOSTED_BLOB_FILE_BYTES if hosted else MAX_UPLOAD_BYTES,
+        "max_upload_files": HOSTED_BLOB_FILE_COUNT if hosted else None,
         "upload_reason": (
-            "secure_object_storage_required"
+            "private_blob_connected"
+            if hosted and blob_configured
+            else "secure_object_storage_required"
             if hosted
             else "private_local_filesystem"
         ),
     }
+
+
+def _validated_blob_source_token(value: Any, session_id: str) -> dict[str, Any]:
+    if not isinstance(value, (dict, list)):
+        raise ValueError("The private ECG upload reference is missing.")
+    raw_files = value.get("files") if isinstance(value, dict) else value
+    if not isinstance(raw_files, list) or not 1 <= len(raw_files) <= HOSTED_BLOB_FILE_COUNT:
+        raise ValueError("Upload between one and three matching ECG files.")
+    prefix = f"ecg-uploads/{session_id}/"
+    validated: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    total_bytes = 0
+    for raw in raw_files:
+        if not isinstance(raw, dict):
+            raise ValueError("The private ECG upload reference is invalid.")
+        filename = Path(str(raw.get("filename", ""))).name
+        if not filename or filename in seen_names:
+            raise ValueError("Uploaded ECG filenames must be unique.")
+        suffix = Path(filename).suffix.casefold()
+        if suffix not in ALLOWED_UPLOAD_SUFFIXES:
+            raise ValueError(f"Unsupported uploaded file type: {suffix or '(none)' }.")
+        try:
+            byte_count = int(raw.get("bytes", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("The private ECG upload size is invalid.") from exc
+        if not 0 < byte_count <= HOSTED_BLOB_FILE_BYTES:
+            raise ValueError("Each hosted ECG file must be 16 MB or smaller.")
+        total_bytes += byte_count
+        if total_bytes > HOSTED_BLOB_FILE_BYTES * HOSTED_BLOB_FILE_COUNT:
+            raise ValueError("The hosted ECG upload is too large.")
+        pathname = str(raw.get("pathname", ""))
+        if not pathname.startswith(prefix) or ".." in pathname:
+            raise ValueError("The private ECG object is outside this browser session.")
+        get_url = _validated_private_blob_url(raw.get("get_url"), pathname)
+        delete_url = _validated_blob_delete_url(raw.get("delete_url"), pathname)
+        validated.append(
+            {
+                "filename": filename,
+                "pathname": pathname,
+                "bytes": byte_count,
+                "get_url": get_url,
+                "delete_url": delete_url,
+            }
+        )
+        seen_names.add(filename)
+    return {"kind": "vercel_blob", "files": validated}
+
+
+def _validated_private_blob_url(value: Any, pathname: str) -> str:
+    url = str(value or "")
+    parsed = urlsplit(url)
+    hostname = (parsed.hostname or "").casefold()
+    if (
+        parsed.scheme != "https"
+        or not hostname.endswith(".private.blob.vercel-storage.com")
+        or unquote(parsed.path).lstrip("/") != pathname
+        or "vercel-blob-signature=" not in parsed.query
+    ):
+        raise ValueError("The signed private ECG download URL is invalid.")
+    return url
+
+
+def _validated_blob_delete_url(value: Any, pathname: str) -> str:
+    url = str(value or "")
+    parsed = urlsplit(url)
+    query = parse_qs(parsed.query)
+    if (
+        parsed.scheme != "https"
+        or (parsed.hostname or "").casefold() != "vercel.com"
+        or parsed.path.rstrip("/") != "/api/blob"
+        or query.get("pathname", [""])[0] != pathname
+        or "vercel-blob-signature" not in query
+    ):
+        raise ValueError("The signed private ECG deletion URL is invalid.")
+    return url
+
+
+def _materialize_blob_files(session: DemoSession, source_token: dict[str, Any]) -> list[Path]:
+    candidates: list[Path] = []
+    for descriptor in source_token["files"]:
+        destination = (session.directory / descriptor["filename"]).resolve()
+        if session.directory.resolve() not in destination.parents:
+            raise ValueError("Invalid private ECG filename.")
+        request = Request(
+            descriptor["get_url"],
+            method="GET",
+            headers={"User-Agent": "ECG-Cascade-Demo/1.0"},
+        )
+        try:
+            with urlopen(request, timeout=60) as response, destination.open("wb") as handle:
+                reported = response.headers.get("Content-Length")
+                if reported and int(reported) > descriptor["bytes"]:
+                    raise ValueError("The stored ECG file is larger than its signed upload size.")
+                received = 0
+                while True:
+                    block = response.read(min(1024 * 1024, descriptor["bytes"] + 1 - received))
+                    if not block:
+                        break
+                    handle.write(block)
+                    received += len(block)
+                    if received > descriptor["bytes"]:
+                        raise ValueError("The stored ECG file exceeded its signed upload size.")
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+            destination.unlink(missing_ok=True)
+            raise ValueError(f"Could not read private ECG file {descriptor['filename']}.") from exc
+        if destination.stat().st_size != descriptor["bytes"]:
+            destination.unlink(missing_ok=True)
+            raise ValueError(f"Private ECG file {descriptor['filename']} was incomplete.")
+        candidates.append(destination)
+    return candidates
+
+
+def _delete_blob_files(source_token: dict[str, Any]) -> bool:
+    deleted = True
+    for descriptor in source_token["files"]:
+        request = Request(
+            descriptor["delete_url"],
+            method="DELETE",
+            headers={"User-Agent": "ECG-Cascade-Demo/1.0"},
+        )
+        try:
+            with urlopen(request, timeout=30):
+                pass
+        except (HTTPError, URLError, TimeoutError, OSError):
+            deleted = False
+    return deleted
 
 
 def _choose_primary_source(paths: list[Path]) -> Path:

@@ -8,6 +8,9 @@
       "maxDuration": 300,
       "includeFiles": "{feature_extraction/src/ecg_cascade/**,Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/100.hea,Datasets/mit-bih-arrhythmia-database-1.0/mit-bih-arrhythmia-database-1.0.0/100.dat}",
       "excludeFiles": "{archive/**,output/**,source_materials/**,tmp/**,feature_extraction/tests/**,feature_extraction/.venv/**,**/__pycache__/**,**/*.pyc}"
+    },
+    "api/blob.js": {
+      "maxDuration": 30
     }
   },
   "headers": [

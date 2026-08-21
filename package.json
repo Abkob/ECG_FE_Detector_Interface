@@ -1,0 +1,12 @@
+{
+  "name": "ecg-cascade-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:blob": "node --test api/blob.test.js"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.8.0"
+  }
+}

@@ -41,6 +41,7 @@ const state = {
     uploads: ["127.0.0.1", "localhost"].includes(window.location.hostname),
     max_duration_s: 300,
     deployment: ["127.0.0.1", "localhost"].includes(window.location.hostname) ? "local" : "hosted",
+    upload_mode: ["127.0.0.1", "localhost"].includes(window.location.hostname) ? "local_filesystem" : "unavailable",
   },
 };
 
@@ -91,7 +92,7 @@ function chooseUploadFiles() {
   }
   showToast(
     "Hosted ECG uploads need file storage",
-    "Neon is saving session results, but raw EDF/WFDB/CSV files need secure object storage. Use the prepared example for now; local mode still accepts private files.",
+    "This deployment does not currently expose a private ECG upload store. Use the prepared example or run the application locally.",
     true,
   );
 }
@@ -132,6 +133,19 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function privateBlobApi(body) {
+  const response = await fetch("/api/blob", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let payload;
+  try { payload = await response.json(); }
+  catch { throw new Error(`Private ECG storage returned an unreadable response (${response.status}).`); }
+  if (!response.ok) throw new Error(payload.error || `Private storage failed (${response.status}).`);
+  return payload;
+}
+
 async function loadPreparedDemo() {
   stopPlayback();
   showLoading("Loading prepared ECG", "Opening MIT-BIH record 100 and preparing a clean signal preview…");
@@ -154,21 +168,65 @@ async function uploadFiles(files) {
     return;
   }
   stopPlayback();
-  showLoading("Reading ECG files", `Uploading ${files.length} local file${files.length === 1 ? "" : "s"} to the private local demo server…`);
+  const privateBlob = state.capabilities.upload_mode === "private_blob";
+  const blobFiles = [];
+  showLoading(
+    "Reading ECG files",
+    privateBlob
+      ? `Encrypting and uploading ${files.length} file${files.length === 1 ? "" : "s"} to the private ECG store…`
+      : `Uploading ${files.length} local file${files.length === 1 ? "" : "s"} to the private local demo server…`,
+  );
   try {
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
       $("#loadingMessage").textContent = `Reading ${file.name} (${index + 1} of ${files.length})…`;
-      await api(`/api/upload?session=${encodeURIComponent(sessionId)}&filename=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      if (privateBlob) {
+        const signed = await privateBlobApi({
+          action: "prepare_upload",
+          session: sessionId,
+          filename: file.name,
+          bytes: file.size,
+        });
+        const uploaded = await fetch(signed.put_url, {
+          method: "PUT",
+          body: file,
+          headers: file.type ? { "Content-Type": file.type } : {},
+        });
+        if (!uploaded.ok) {
+          throw new Error(`Private upload failed for ${file.name} (${uploaded.status}).`);
+        }
+        blobFiles.push(signed.source_file);
+      } else {
+        await api(`/api/upload?session=${encodeURIComponent(sessionId)}&filename=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      }
     }
     const payload = await api("/api/inspect", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session: sessionId, files: files.map((file) => file.name), csv_sampling_rate_hz: csvRateOrNull() }),
+      body: JSON.stringify({
+        session: sessionId,
+        files: files.map((file) => file.name),
+        blobs: privateBlob ? blobFiles : undefined,
+        csv_sampling_rate_hz: csvRateOrNull(),
+      }),
     });
-    applySource(payload.source, null);
+    applySource(payload.source, payload.source_token || null);
     await refreshPreview();
-    showToast("Signal loaded", `${payload.source.name} is ready for branch analysis.`);
-  } catch (error) { showError(error); }
+    showToast(
+      "Signal loaded",
+      privateBlob
+        ? `${payload.source.name} is private and ready. The stored upload will be deleted after extraction.`
+        : `${payload.source.name} is ready for branch analysis.`,
+    );
+  } catch (error) {
+    if (privateBlob && blobFiles.length) {
+      await Promise.allSettled(blobFiles.map((file) => privateBlobApi({
+        action: "delete_upload",
+        session: sessionId,
+        pathname: file.pathname,
+      })));
+    }
+    showError(error);
+  }
   finally { hideLoading(); $("#fileInput").value = ""; }
 }
 
@@ -178,12 +236,17 @@ function applyCapabilities(capabilities) {
   const uploadButton = $("#uploadButton");
   uploadButton.disabled = false;
   uploadButton.classList.toggle("storage-required", !state.capabilities.uploads);
+  const privateBlob = state.capabilities.upload_mode === "private_blob";
   uploadButton.title = state.capabilities.uploads
-    ? "Upload an EDF, WFDB, or numeric CSV signal"
-    : "Hosted research demo: secure object storage is required for raw ECG uploads";
+    ? privateBlob
+      ? "Upload an ECG to encrypted private storage for one analysis"
+      : "Upload an EDF, WFDB, or numeric CSV signal"
+    : "Hosted research demo: private ECG storage is unavailable";
   $("#uploadAvailabilityNote").textContent = state.capabilities.uploads
-    ? "EDF · WFDB (.hea + .dat) · numeric CSV"
-    : "Public demo: prepared example only · raw-file storage is not connected";
+    ? privateBlob
+      ? "Private Blob · up to 3 files · ≤16 MB/file · deleted after analysis"
+      : "EDF · WFDB (.hea + .dat) · numeric CSV"
+    : "Prepared example only · private upload storage unavailable";
   const maxDuration = Number(state.capabilities.max_duration_s) || 300;
   $("#durationInput").max = String(maxDuration);
 }
@@ -259,13 +322,20 @@ async function analyzeSignal() {
       body: JSON.stringify({ ...requestBody(), timestamp_track: selectedTrack(), calibration_beats: Number($("#calibrationBeatsInput").value) }),
     });
     state.analysis = payload.analysis;
+    if (payload.source_released) {
+      state.sourceToken = null;
+      $("#previewButton").disabled = true;
+    }
     state.cursorS = payload.analysis.source.start_s;
     state.matrixSignature = "";
     initializeAnalysisUi();
     populateGlossary();
     renderAtCursor();
     startPlayback();
-    showToast("Extraction complete", `${payload.analysis.summary.r_peak_count} heartbeat anchors were processed. The dashboard is replaying the extraction now.`);
+    showToast(
+      "Extraction complete",
+      `${payload.analysis.summary.r_peak_count} heartbeat anchors were processed.${payload.source_released ? " The private raw upload was deleted." : ""} The dashboard is replaying the extraction now.`,
+    );
   } catch (error) { showError(error); }
   finally { hideLoading(); }
 }

@@ -16,8 +16,10 @@ The reproducible documentation bundle is under `output/`. Start with `output/arc
 The clinician-facing research walkthrough is deployed at
 [ecg-cascade-demo.vercel.app](https://ecg-cascade-demo.vercel.app). Vercel
 builds the static interface and Python API from this repository. Neon stores
-the latest compressed analysis for each browser session; it does not store raw
-ECG uploads.
+the latest compressed analysis for each browser session. Hosted ECG files are
+uploaded through one-hour signed URLs to a private Vercel Blob store, read only
+inside the analysis function, and deleted after successful extraction. Neon
+does not store raw ECG uploads.
 
 Raw datasets, local credentials, generated outputs, rendered reports, and
 historical/reference collections are excluded by `.gitignore`. The only raw

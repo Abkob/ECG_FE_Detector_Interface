@@ -6,8 +6,10 @@ __pycache__/
 .pytest_cache/
 public/
 .vercel/
+.vercel_python_packages/
 .mypy_cache/
 .ruff_cache/
+node_modules/
 
 # Local secrets and deployment credentials
 .env
