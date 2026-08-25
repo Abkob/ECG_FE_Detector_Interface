@@ -11,6 +11,10 @@ The maintained Python package and tests live under `feature_extraction/`. Raw lo
 
 The reproducible documentation bundle is under `output/`. Start with `output/architecture/Architecture.pdf`, then use the exhaustive branch dossiers (B1 147 pages, B2 148 pages, B3 101 pages, B4 81 pages) and their executable walkthrough notebooks. Together they map all 77 first-party Python files and include complete symbol, test, saved-result, historical-report, case-study, and evidence ledgers. Evidence indexes distinguish project artifacts, dataset records, case studies, literature, unresolved material, and quarantined invalid files.
 
+## Research background
+
+The [ECG change detection during concurrent EEG monitoring literature review](docs/research/ecg-change-detection-during-eeg-literature-review.pdf) records the project's initial evidence synthesis across peri-ictal rate/HRV, rhythm, morphology, single-lead limitations, and EEG-timed analysis windows. It is an AI-assisted research brief produced with ChatGPT Deep Research, not a peer-reviewed publication or clinical guideline; claims should be checked against the cited primary sources before reuse.
+
 ## Web demonstration
 
 The clinician-facing research walkthrough is deployed at

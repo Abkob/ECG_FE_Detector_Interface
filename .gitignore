@@ -67,6 +67,7 @@ node_modules/
 *.pdf
 *.png
 *.pptx
+!docs/research/*.pdf
 *.inspect.ndjson
 /feature_extraction/reports/**/outputs/
 

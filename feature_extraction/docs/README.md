@@ -128,8 +128,8 @@ The package does **not** currently contain:
 | [21 Conduction information branch](21_CONDUCTION_INFORMATION_BRANCH_V2.md) | Evidence-narrowed information-only output: exact raw PQRST peak dynamics, robust five-beat descriptions, nine-beat QT context, quality input contract, and no bad-change label. |
 | [21 Signal-quality branch v0](21_SIGNAL_QUALITY_BRANCH_V0.md) | Implemented feature schema, paper/project boundaries, exact tolerance names, synthetic tests, NSTDB behavior, and the remaining BUT-QDB label gate. |
 | [22 PRSA/BPRSA context validation](22_PRSA_BPRSA_CONTEXT_VALIDATION.md) | Equation and causal-matrix correctness, all-48 expert-anchor reproducibility, lead/polarity sensitivity, controlled electrode-motion noise, arrhythmia confounding, CHB seizure reliability, and the remaining clinical-validation gate. |
-| [Controlled artifact-degradation benchmark](../outputs/artifact_degradation_nstdb_v1/REPORT.md) | Clean, +24 to -6 dB electrode-motion results for UNSW-owned HRV and oracle/UNSW/NeuroKit/Zhai morphology, with pooled and per-source tables. |
-| [Signal-quality NSTDB v0 diagnostic](../outputs/signal_quality_nstdb_v0/REPORT.md) | Feature calculability and rank response across clean 118/119 and controlled +24 to -6 dB electrode-motion windows. |
+| Controlled artifact-degradation benchmark (`../outputs/artifact_degradation_nstdb_v1/REPORT.md`, generated locally) | Clean, +24 to -6 dB electrode-motion results for UNSW-owned HRV and oracle/UNSW/NeuroKit/Zhai morphology, with pooled and per-source tables. |
+| Signal-quality NSTDB v0 diagnostic (`../outputs/signal_quality_nstdb_v0/REPORT.md`, generated locally) | Feature calculability and rank response across clean 118/119 and controlled +24 to -6 dB electrode-motion windows. |
 | [Complete morphology technical record](latex_morphology_branch/morphology_branch_complete_technical_record.tex) | Auditable morphology and PRSA/BPRSA specifications, every implemented and rejected trial, exact results, sources, and remaining validation limits. |
 
 ## Evidence-status vocabulary

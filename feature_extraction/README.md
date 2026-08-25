@@ -272,7 +272,7 @@ failures and confirms that the components can fail differently:
   chosen from coverage alone.
 
 Full benchmark tables and the exact configuration are in
-[`../output/rr_hrv_architecture/mitdb_all48_v1`](../output/rr_hrv_architecture/mitdb_all48_v1).
+`../output/rr_hrv_architecture/mitdb_all48_v1` (generated locally and excluded from Git history).
 
 Run all tests with:
 
