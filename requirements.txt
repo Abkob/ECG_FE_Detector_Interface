@@ -5,4 +5,5 @@ pandas==2.3.3
 psycopg[binary]==3.3.4
 pyEDFlib==0.1.42
 scipy==1.17.0
+scikit-learn==1.9.0
 wfdb==4.3.1

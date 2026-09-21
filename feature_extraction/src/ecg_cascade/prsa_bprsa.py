@@ -260,9 +260,7 @@ def extract_prsa_bprsa_features(
     if not np.isfinite(segment_start_s) or segment_start_s < 0:
         raise ValueError("segment_start_s must be finite and non-negative")
     peaks = np.unique(np.asarray(r_peak_samples, dtype=np.int64))
-    if peaks.size < 2:
-        raise ValueError("At least two R peaks are required")
-    if peaks[0] < 0 or peaks[-1] >= signal.size:
+    if peaks.size and (peaks[0] < 0 or peaks[-1] >= signal.size):
         raise ValueError("R peaks must lie inside the ECG segment")
 
     oriented = orient_signal(signal, orientation)
@@ -302,6 +300,7 @@ def extract_prsa_bprsa_features(
         "lead_name": str(lead_name),
         "anchor_track": str(anchor_track),
         "r_amplitude_polarity_preserved_after_requested_orientation": True,
+        "insufficient_peak_context": bool(peaks.size < 2),
     }
     return PRSABPRSAResult(
         features=frame,

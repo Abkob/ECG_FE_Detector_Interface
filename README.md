@@ -25,8 +25,24 @@ uploaded through one-hour signed URLs to a private Vercel Blob store, read only
 inside the analysis function, and deleted after successful extraction. Neon
 does not store raw ECG uploads.
 
-Raw datasets, local credentials, generated outputs, rendered reports, and
-historical/reference collections are excluded by `.gitignore`. The only raw
+The extraction interface links to a separate rigorous-audit page generated
+from the comprehensive local matrix. It displays five explicit binary target
+definitions and all 375 patient/source-group out-of-fold experiments: five
+classifiers across all 15 non-empty branch combinations for each target. The
+audit retains every case prediction, record/patient confusion matrices,
+group-bootstrap uncertainty, missingness/source baselines, permuted-label
+controls, and a byte-level SHA-256 inventory of every local source file. The
+older single-holdout page remains available only for comparison and is not a
+final-test claim.
+
+The hosted audit exports use public benchmark record identifiers; their source
+datasets and export scope are listed in [data provenance](docs/DATA_PROVENANCE.md).
+
+Raw datasets, local credentials, disposable generated outputs, most rendered
+reports, and historical/reference collections are excluded by `.gitignore`.
+The current audit briefings and their required figures are retained with their
+editable sources; see the [report index](feature_extraction/reports/README.md).
+The only raw
 recording files tracked are MIT-BIH record 100 (`100.hea` and `100.dat`), which
 are required by the prepared public demonstration.
 
@@ -46,6 +62,16 @@ feature_extraction\.venv\Scripts\python.exe tools\verify_bundle.py
 ```
 
 Run these commands from the repository root. The audit and render steps require Python with `pypdf`/Pillow and the detected Poppler utilities. LaTeX and PDF QA commands, statuses, and outputs are recorded in `output/qa/`.
+
+## Project protocol and organized backup
+
+The working agreement is in [AGENTS.md](AGENTS.md), with the full
+[project protocol](docs/PROJECT_PROTOCOL.md) and dated session notes under
+`docs/chat_updates/`. Work continues in this repository. The organized backup
+is `C:\Users\Salam\Desktop\evo-Sep&Oct26\Y-ECG`, grouped by research idea and
+refreshed at session closeout using `tools/sync_y_ecg_backup.py`.
+After every project commit, push to the configured upstream and verify the
+remote contains it, as authorized by the standing project protocol.
 
 ## Status vocabulary
 

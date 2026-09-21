@@ -15,7 +15,7 @@
   },
   "headers": [
     {
-      "source": "/(app.js|styles.css)",
+      "source": "/(app.js|models.js|audit.js|styles.css|benchmark_results.json|audit_results.json)",
       "headers": [
         {
           "key": "Cache-Control",

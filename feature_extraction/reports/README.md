@@ -13,6 +13,24 @@ This folder is the curated PDF-report collection for the ECG feature-extraction 
 | `ECG_Seizure_Merged_Research_Strategy.pdf` | 12 | Merged research strategy and specific-aims narrative | `output/pdf/ECG_Seizure_Merged_Research_Strategy.pdf` |
 | `ECG_Internship_Progress_Report_Week5.pdf` | 6 | Project progress report covering the cascade branches and implementation direction | `output/pdf/ECG_Internship_Progress_Report_Week5.pdf` |
 
+## Current classification-audit deliverables
+
+These final PDFs accompany the current grouped classification audit. Their
+editable TeX, figure builders, and required figures are kept in the same folders.
+The reports retain their original analysis dates; copying them into Git does
+not rerun the experiments or turn cross-validation into an external test.
+
+| Deliverable | PDF | Editable source |
+|---|---|---|
+| Clinician grouped-audit report | [PDF](clinician_grouped_audit_4page/main.pdf) | [TeX](clinician_grouped_audit_4page/main.tex) |
+| Explanation and improvement script | [PDF](ecg_audit_explanation_script/main.pdf) | [TeX](ecg_audit_explanation_script/main.tex) |
+| PI feature-matrix briefing | [PDF](pi_seizure_feature_matrix_4page/main.pdf) | [TeX](pi_seizure_feature_matrix_4page/main.tex) |
+
+The [dataset audit workbook](../../outputs/01a066b5-0c49-7dd2-b1f2-2496eef277a7/comprehensive_ecg_branch_dataset_audit.xlsx)
+is retained as the original session deliverable. The
+[rigorous-audit technical note](../docs/23_RIGOROUS_CLASSIFICATION_AUDIT.md)
+documents the current method and limitations.
+
 ## Scope rule
 
 Included files are project-authored reports about the ECG cascade, its feature-extraction branches, or their validation. Published literature PDFs remain in the literature/reference folders. Duplicate LaTeX builds, temporary QA revisions, source-input PDFs, and plot-only PDF exports are not duplicated here.

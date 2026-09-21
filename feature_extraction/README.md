@@ -283,6 +283,24 @@ Run all tests with:
 Detailed implementation and evidence notes are in
 [`docs/09_COMPLETE_RR_HRV_ARCHITECTURE.md`](docs/09_COMPLETE_RR_HRV_ARCHITECTURE.md).
 
+## Audit the classification matrix without row leakage
+
+The original one-fold model page is exploratory and can be optimistic. Run the
+patient/source-group out-of-fold audit instead:
+
+```powershell
+.venv\Scripts\python scripts\run_rigorous_audit.py `
+  --web-json src\ecg_cascade\web_demo\audit_results.json
+```
+
+This refits preprocessing and the classifier inside every fold, predicts each
+labelled row only while its complete `lineage_group_id` is absent from
+training, bootstraps complete groups for uncertainty, and writes every case,
+record, patient, fold, baseline, permutation, and confusion-matrix result to
+`outputs/comprehensive_branch_matrix_v1/rigorous_audit_v2/`. The displayed
+winner is still selected on the same cross-validation results and must not be
+described as an independent final-test estimate.
+
 ## Review R peaks, labels, RR, and morphology interactively
 
 Double-click `Launch_ECG_Cascade_Reviewer.bat` (the older
@@ -507,6 +525,80 @@ The signal-quality notebook demonstrates controlled degradation but does not
 claim to be an artifact classifier. The conduction notebook remains
 information-only, and none of the notebooks produces a seizure or clinical
 decision.
+
+## Comprehensive branch-validation dataset
+
+Build the label-preserving validation matrix across MIT-BIH Arrhythmia,
+NSTDB, LUDB, QTDB, BUT-QDB, and the configured CHB-MIT/Siena seizure EDFs:
+
+```powershell
+.venv\Scripts\python.exe scripts\build_comprehensive_dataset.py `
+  --output outputs\comprehensive_branch_matrix_v1
+```
+
+The model inputs and labels are deliberately separated. `X_features.csv`
+contains only `row_id` plus the 52 B1--B4 measurements. `y_labels.csv`
+contains the same `row_id` plus exact source labels and explicitly named
+derived labels. `observations_with_labels.csv` is the joined audit view, not
+the recommended direct model input. Read `record_id` as a string when loading
+CSV files because NSTDB identifiers such as `118e00` resemble scientific
+notation.
+
+The source label namespaces remain distinct: MIT-BIH beat symbols, derived
+AAMI beat superclasses, NSTDB noise/SNR conditions, BUT-QDB annotator and
+consensus quality classes, LUDB diagnoses/rhythm/manual landmarks, QTDB q1c
+manual landmarks, and configured seizure intervals/phases. Do not combine
+them into a single generic target column. Use the task-specific files under
+`model_tasks`, and split by `lineage_group_id` or `suggested_cv_fold` rather
+than randomly splitting rows. This keeps repeated windows, same-patient EDFs,
+and clean/noisy source derivatives in one fold.
+
+Five nullable integer targets are also provided beside those source labels:
+`target_artifact_binary`, `target_seizure_binary`,
+`target_abnormal_beat_binary`, `target_noise_active_binary`, and
+`target_signal_unusable_binary`. The exact 0/1 mapping and exclusions are in
+`label_dictionary.csv`; missing means unknown, never class 0. The broad
+artifact target maps pure BUT-QDB class 1 to 0 and class 2/3 to 1, then adds
+NSTDB's official inactive/active schedule. The stricter unusable target uses
+only BUT-QDB class 1 versus class 3 and deliberately excludes class 2.
+
+`branch_combinations.csv` enumerates all 15 non-empty B1--B4 feature subsets
+for supervised ablation tests. For unsupervised clustering, fit on the chosen
+feature subset without labels and use the keyed label view only afterward to
+interpret cluster enrichment. Missing measurements are retained as missing;
+apply imputation inside each training fold rather than replacing them with
+zero before splitting.
+
+For gap-free processing of every supported recording, use the resumable
+exhaustive profile. This is substantially larger than the label-rich
+validation build, especially for the 24-hour BUT-QDB records:
+
+```powershell
+.venv\Scripts\python.exe scripts\build_comprehensive_dataset.py `
+  --profile exhaustive --plan-only `
+  --output outputs\comprehensive_branch_matrix_exhaustive_v1
+
+.venv\Scripts\python.exe scripts\build_comprehensive_dataset.py `
+  --profile exhaustive `
+  --output outputs\comprehensive_branch_matrix_exhaustive_v1
+```
+
+Run the frozen five-model benchmark on all five binary targets and all 15
+branch combinations with:
+
+```powershell
+.venv\Scripts\python.exe scripts\run_model_benchmark.py `
+  --dataset outputs\comprehensive_branch_matrix_v1 `
+  --output outputs\comprehensive_branch_matrix_v1\model_benchmark `
+  --web-json src\ecg_cascade\web_demo\benchmark_results.json
+```
+
+The benchmark retains aggregate metrics, the exact split manifest, model
+settings, a source-matrix SHA-256, and compressed row-level holdout
+predictions. The browser's **Model results** page renders all 375 aggregate
+experiments. These are grouped exploratory results, not external clinical
+validation; the seizure and NSTDB noise tasks have especially few independent
+lineage groups.
 
 ## Primary references
 

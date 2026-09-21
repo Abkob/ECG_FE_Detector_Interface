@@ -68,6 +68,16 @@ node_modules/
 *.png
 *.pptx
 !docs/research/*.pdf
+# Curated current audit deliverables and the figures their editable sources use.
+!/feature_extraction/reports/clinician_grouped_audit_4page/main.pdf
+!/feature_extraction/reports/ecg_audit_explanation_script/main.pdf
+!/feature_extraction/reports/pi_seizure_feature_matrix_4page/main.pdf
+!/feature_extraction/reports/clinician_grouped_audit_4page/performance_overview.png
+!/feature_extraction/reports/clinician_grouped_audit_4page/group_variability.png
+!/feature_extraction/reports/clinician_grouped_audit_4page/mixed_context.png
+!/feature_extraction/reports/pi_seizure_feature_matrix_4page/simple_overview.png
+!/feature_extraction/reports/pi_seizure_feature_matrix_4page/seizure_reality.png
+!/feature_extraction/reports/pi_seizure_feature_matrix_4page/mixed_context_simple.png
 *.inspect.ndjson
 /feature_extraction/reports/**/outputs/
 

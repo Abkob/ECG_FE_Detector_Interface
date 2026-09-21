@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Patient-grouped audit of the ECG branch classification matrix.">
+  <title>ECG Cascade · Rigorous audit</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="benchmark-body audit-body">
+  <header class="benchmark-nav">
+    <a class="benchmark-brand" href="/"><span class="brand-mark">⌁</span><span><b>ECG Cascade</b><small>Group-out audit</small></span></a>
+    <nav><a href="#verdict">Verdict</a><a href="#leakage">Leakage tests</a><a href="#patients">Patients</a><a href="#cases">Weak cases</a><a class="back-link" href="/">Feature extraction</a></nav>
+  </header>
+
+  <main class="benchmark-main">
+    <section class="audit-hero" id="verdict">
+      <div><div class="eyebrow">INDEPENDENCE-FIRST RECHECK</div><h1>No perfect-prediction claim.</h1><p id="auditVerdict">Loading the evidence-backed verdict…</p></div>
+      <div class="audit-stamp"><span>RAW SOURCE READ</span><strong id="rawRead">—</strong><small id="rawBytes">—</small></div>
+    </section>
+
+    <section class="benchmark-summary audit-summary">
+      <article><span>Matrix rows</span><strong id="auditRows">—</strong><small>feature observations</small></article>
+      <article><span>Lineage groups</span><strong id="auditGroups">—</strong><small>patient/source units</small></article>
+      <article><span>Experiments</span><strong id="auditExperiments">—</strong><small>all target/model/branch cells</small></article>
+      <article><span>Source files</span><strong id="auditFiles">—</strong><small>byte-read + SHA-256</small></article>
+      <article><span>Integrity</span><strong id="auditIntegrity">—</strong><small>structural checks</small></article>
+    </section>
+
+    <aside class="audit-warning"><strong>What this page proves</strong><p>Every displayed case prediction was made by a fold that excluded its complete lineage group. The matrix contains pipeline-produced beat anchors from 336 label-rich segments—not every sample in all 557.81 raw signal-hours. Abnormal-beat results cover anchors matched within 75 ms of expert beats and are not end-to-end detector sensitivity. No untouched external cohort exists, and the displayed winner was selected from this same cross-validation matrix.</p></aside>
+
+    <section class="benchmark-section">
+      <div class="benchmark-heading"><div><div class="eyebrow">TARGET CONTRACT</div><h2>Different databases, different truths</h2></div><p>Rows with an unknown target are excluded, never converted to class 0. Select a target to drive all evidence below.</p></div>
+      <div class="target-grid" id="auditTargetGrid"></div>
+    </section>
+
+    <section class="benchmark-section">
+      <div class="benchmark-heading"><div><div class="eyebrow">SELECTED FOR INSPECTION</div><h2>Out-of-group confusion matrix</h2></div><p>The ranking uses group-macro balanced accuracy so a long recording cannot silently outweigh a short patient.</p></div>
+      <div class="audit-selected">
+        <div><span id="selectedReliability">—</span><h3 id="selectedTitle">—</h3><p id="selectedScope">—</p></div>
+        <div class="audit-score"><strong id="selectedScore">—</strong><small>group-macro balanced accuracy</small><span id="selectedCi">—</span></div>
+      </div>
+      <div class="metric-grid audit-metrics" id="auditMetricGrid"></div>
+      <div class="confusion-grid audit-confusion" id="auditConfusion"></div>
+      <div class="audit-formula"><code>balanced accuracy = ½ × [ TP/(TP+FN) + TN/(TN+FP) ]</code><span id="calculationText">—</span></div>
+    </section>
+
+    <section class="benchmark-section" id="leakage">
+      <div class="benchmark-heading"><div><div class="eyebrow">ADVERSARIAL CONTROLS</div><h2>Leakage and shortcut checks</h2></div><p>A suspiciously strong missingness-only or dataset-only model means the classifier may be learning the data collection process instead of physiology.</p></div>
+      <div class="audit-check-grid" id="auditChecks"></div>
+    </section>
+
+    <section class="benchmark-section">
+      <div class="benchmark-heading"><div><div class="eyebrow">ALL 75 CELLS FOR THIS TARGET</div><h2>Five models × fifteen branch combinations</h2></div><p>These are out-of-fold comparisons, not 75 independent final tests.</p></div>
+      <div class="result-table-scroll"><table class="result-table audit-table"><thead><tr><th>Rank</th><th>Branches</th><th>Model</th><th>Features</th><th>Group BA</th><th>Row BA</th><th>95% group CI</th><th>Sensitivity</th><th>Specificity</th><th>Errors</th></tr></thead><tbody id="auditResultsBody"></tbody></table></div>
+    </section>
+
+    <section class="benchmark-section" id="patients">
+      <div class="benchmark-heading"><div><div class="eyebrow">EVERY RECORD</div><h2>Where the selected configuration fails</h2></div><p>Single-class records have no balanced accuracy; their sensitivity or specificity remains explicit instead of being fabricated.</p></div>
+      <div class="result-table-scroll"><table class="result-table audit-table"><thead><tr><th>Dataset</th><th>Record</th><th>Patient/group</th><th>Rows</th><th>Positives</th><th>TN</th><th>FP</th><th>FN</th><th>TP</th><th>Balanced acc.</th><th>Error rate</th></tr></thead><tbody id="recordBody"></tbody></table></div>
+      <div class="benchmark-heading audit-subheading"><div><div class="eyebrow">EVERY INDEPENDENCE UNIT</div><h3>Patient / lineage-group results</h3></div><p>Related records and derivative databases are collapsed into the same held-out group.</p></div>
+      <div class="result-table-scroll"><table class="result-table audit-table"><thead><tr><th>Patient</th><th>Lineage group</th><th>Rows</th><th>Positives</th><th>TN</th><th>FP</th><th>FN</th><th>TP</th><th>Balanced acc.</th><th>Error rate</th></tr></thead><tbody id="patientBody"></tbody></table></div>
+    </section>
+
+    <section class="benchmark-section" id="cases">
+      <div class="benchmark-heading"><div><div class="eyebrow">MOST CONFIDENT ERRORS</div><h2>Weak-case catalogue</h2></div><p>The downloadable evidence retains every error and all 52 matrix values. This page shows the 100 highest-priority cases per target.</p></div>
+      <div class="audit-downloads"><a href="/selected_case_predictions.csv.gz" download>Every selected OOF case + 52 features</a><a href="/weak_case_explanations.csv.gz" download>Every error + descriptive explanation</a><a href="/record_metrics.csv" download>Every record</a><a href="/patient_metrics.csv" download>Every patient/group</a><a href="/group_oof_results.csv" download>All 375 experiment results</a><a href="/split_manifest.csv" download>Exact held-out folds</a></div>
+      <div class="result-table-scroll"><table class="result-table audit-table"><thead><tr><th>Error</th><th>Dataset</th><th>Record</th><th>Patient/group</th><th>Time</th><th>Truth</th><th>Prediction</th><th>Score</th><th>Source label</th><th>Descriptive resemblance</th><th>Features present</th></tr></thead><tbody id="weakCaseBody"></tbody></table></div>
+    </section>
+
+    <section class="benchmark-section">
+      <div class="benchmark-heading"><div><div class="eyebrow">CORPUS ACCOUNTING</div><h2>How the datasets were combined</h2></div><p>Dataset rows are pooled only when they support the selected target. Lineage grouping joins MIT-BIH originals to their QTDB/NSTDB derivatives.</p></div>
+      <div class="result-table-scroll"><table class="result-table audit-table"><thead><tr><th>Dataset</th><th>Rows</th><th>Records</th><th>Subjects</th><th>Groups</th><th>Known for target</th><th>Positive</th></tr></thead><tbody id="datasetBody"></tbody></table></div>
+      <div class="audit-protocol" id="auditProtocol"></div>
+    </section>
+
+    <section class="benchmark-section">
+      <div class="benchmark-heading"><div><div class="eyebrow">MODEL INPUT CONTRACT</div><h2>What each branch contributes</h2></div><p>Only these 52 numeric measurements enter the classifiers; provenance, timestamps, source labels and manual references stay outside X.</p></div>
+      <div class="audit-branch-grid">
+        <article><span>B1 · 15</span><h3>RR, HRV, PRSA/BPRSA</h3><p>Instantaneous RR/heart rate, 100-RR Poincaré and Jeppesen-family context, plus 80-beat PRSA/BPRSA slopes.</p></article>
+        <article><span>B2 · 16</span><h3>Morphology</h3><p>Five patient-specific Varon eigenvalues, frozen template residual/DTW measurements and automatic P–QRS–T shape.</p></article>
+        <article><span>B3 · 13</span><h3>Conduction information</h3><p>Automatic JT, Tpeak-end and corrected QT timing with causal five- and nine-beat summaries; still information-only.</p></article>
+        <article><span>B4 · 8</span><h3>Signal quality</h3><p>Finite/flat fractions, spectral ratios, detector agreement, RR support and template correlation—no source quality label.</p></article>
+      </div>
+    </section>
+
+    <footer class="benchmark-footer"><div><strong>ECG Cascade rigorous audit</strong><span>Complete CSV/GZIP evidence remains in the generated rigorous_audit_v2 directory.</span></div><a href="/models.html">View the superseded single-holdout page →</a></footer>
+  </main>
+  <div class="benchmark-loading" id="auditLoading"><div class="loader-rings"><i></i><i></i><i></i></div><strong>Loading patient-level evidence</strong></div>
+  <script src="/audit.js" defer></script>
+</body>
+</html>

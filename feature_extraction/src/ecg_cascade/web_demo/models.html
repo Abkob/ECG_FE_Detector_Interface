@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Grouped classifier benchmark across every ECG Cascade branch combination and binary research target.">
+  <title>ECG Cascade · Model benchmark</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="benchmark-body">
+  <header class="benchmark-nav">
+    <a class="benchmark-brand" href="/">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M5 25h8l4-10 7 22 5-15 4 7h10"/></svg></span>
+      <span><b>ECG Cascade</b><small>Model benchmark</small></span>
+    </a>
+    <nav aria-label="Benchmark navigation">
+      <a href="#labels">Labels</a><a href="#results">Results</a><a href="#models">Models</a><a href="#coverage">Coverage</a>
+      <a class="back-link" href="/">← Feature extraction</a>
+    </nav>
+  </header>
+
+  <main class="benchmark-main">
+    <aside class="audit-warning">
+      <strong>Superseded evaluation</strong>
+      <p>This page uses one selected holdout and is retained only for comparison. Do not cite its “best” cells. <a href="/audit.html">Open the patient/source-group out-of-fold audit →</a></p>
+    </aside>
+    <section class="benchmark-hero">
+      <div>
+        <div class="eyebrow">COMPREHENSIVE MATRIX · GROUPED HOLDOUT</div>
+        <h1>Which feature branches actually help classification?</h1>
+        <p>Five binary label views, five diverse classifiers and every one of the 15 non-empty B1–B4 combinations. Every score below was calculated from the preserved multi-dataset matrix—never from a random row split.</p>
+        <div class="hero-actions"><a class="button button-run" href="#results">Explore all results</a><a class="button benchmark-download" href="/benchmark_results.json" download>Download result JSON</a></div>
+      </div>
+      <div class="hero-proof" id="heroProof">
+        <div class="proof-orbit"><span>5</span><i>BINARY TARGETS</i></div>
+        <div class="proof-line"><span></span><b>15 combinations × 5 models</b></div>
+        <div class="proof-line"><span></span><b>lineage groups kept intact</b></div>
+        <div class="proof-line"><span></span><b>all held-out predictions retained</b></div>
+      </div>
+    </section>
+
+    <section class="benchmark-summary" aria-label="Dataset summary">
+      <article><span>Observations</span><strong id="summaryRows">—</strong><small>label-preserving rows</small></article>
+      <article><span>Feature columns</span><strong id="summaryFeatures">—</strong><small>across four branches</small></article>
+      <article><span>Experiments</span><strong id="summaryExperiments">—</strong><small>all completed</small></article>
+      <article><span>Source databases</span><strong id="summaryDatasets">—</strong><small>independent label families</small></article>
+      <article><span>Dataset QA</span><strong id="summaryQa">—</strong><small>strict extraction audit</small></article>
+    </section>
+
+    <aside class="benchmark-caveat">
+      <span>RESEARCH BOUNDARY</span>
+      <p><strong>These are superseded exploratory engineering results, not diagnostic performance claims.</strong> The selected holdout was also used to identify the best result. Use the rigorous audit page for all-group out-of-fold predictions, patient/record errors, controls and uncertainty.</p>
+    </aside>
+
+    <section class="corpus-mode-strip" aria-label="Completed and exhaustive dataset profiles">
+      <article><span>COMPLETED + BENCHMARKED</span><strong>Label-rich comprehensive profile</strong><p>39,664 observations · 299 represented records · 336 label-aware segments · zero failed extractions.</p></article>
+      <i aria-hidden="true">→</i>
+      <article><span>PLANNED + RESUMABLE</span><strong>Gap-free exhaustive profile</strong><p>557.81 signal-hours · 11,337 non-overlapping windows · 392 records across all six dataset families.</p></article>
+    </section>
+
+    <section class="benchmark-section" id="labels">
+      <div class="benchmark-heading"><div><div class="eyebrow">LABEL CONTRACT</div><h2>Original truth stays intact; 0/1 targets sit beside it</h2></div><p>A blank target is unknown—not class 0. Click a target to drive every result view below.</p></div>
+      <div class="target-grid" id="targetGrid" role="list"></div>
+    </section>
+
+    <section class="benchmark-section" id="results">
+      <div class="benchmark-heading"><div><div class="eyebrow">375 COMPLETED EXPERIMENTS</div><h2>Branch-combination model matrix</h2></div><p>Balanced accuracy is the primary ranking metric because every target is imbalanced. Choose another metric without rerunning a model.</p></div>
+      <div class="result-controls">
+        <label>Target<select id="targetSelect"></select></label>
+        <label>Metric<select id="metricSelect"><option value="balanced_accuracy">Balanced accuracy</option><option value="roc_auc">ROC AUC</option><option value="average_precision">Average precision</option><option value="f1">F1</option><option value="recall_sensitivity">Sensitivity</option><option value="specificity">Specificity</option></select></label>
+        <label>Model<select id="modelSelect"><option value="all">All five models</option></select></label>
+        <label>Branches<select id="branchSelect"><option value="all">All 15 combinations</option></select></label>
+      </div>
+
+      <div class="best-experiment" id="bestExperiment"><div><span>BEST HELD-OUT RESULT</span><h3>Loading benchmark…</h3><p></p></div><div class="best-score"><strong>—</strong><small>balanced accuracy</small></div></div>
+
+      <div class="heatmap-shell">
+        <div class="heatmap-title"><strong>Model × branch combination</strong><span>Click any cell or table row for its confusion matrix and complete metrics.</span></div>
+        <div class="benchmark-heatmap" id="benchmarkHeatmap" aria-label="Classifier performance heatmap"></div>
+        <div class="heat-scale"><span>chance / weak</span><i></i><span>stronger held-out score</span></div>
+      </div>
+
+      <div class="experiment-detail" id="experimentDetail">
+        <div class="detail-heading"><div><span>SELECTED EXPERIMENT</span><h3 id="detailTitle">—</h3></div><strong id="detailBalanced">—</strong></div>
+        <div class="metric-grid" id="metricGrid"></div>
+        <div class="confusion-wrap"><div><strong>Confusion matrix</strong><span>held-out rows</span></div><div class="confusion-grid" id="confusionGrid"></div></div>
+        <p class="detail-note" id="detailNote"></p>
+      </div>
+
+      <div class="all-results">
+        <div class="table-heading"><div><strong>All matching experiments</strong><span id="resultCount">—</span></div><button id="resetFilters" class="text-button">Reset filters</button></div>
+        <div class="result-table-scroll"><table class="result-table"><thead><tr><th>Rank</th><th>Branches</th><th>Model</th><th>Features</th><th>Balanced acc.</th><th>ROC AUC</th><th>Avg precision</th><th>F1</th><th>Sensitivity</th><th>Specificity</th><th>Test rows</th></tr></thead><tbody id="resultTableBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="benchmark-section" id="models">
+      <div class="benchmark-heading"><div><div class="eyebrow">LITERATURE-GROUNDED PANEL</div><h2>Five complementary classifiers</h2></div><p>This is a broad comparison panel, not a claim that one algorithm is universally best. Exact frozen settings and primary references are shown.</p></div>
+      <div class="model-card-grid" id="modelCards"></div>
+    </section>
+
+    <section class="benchmark-section" id="coverage">
+      <div class="benchmark-heading"><div><div class="eyebrow">DATASET + SPLIT AUDIT</div><h2>What entered the benchmark</h2></div><p>The source databases contribute different truths. Lineage grouping keeps same-patient recordings, repeated windows and derived/noisy copies on one side of the split.</p></div>
+      <div class="coverage-grid"><div class="coverage-table-card"><h3>Source coverage</h3><table class="coverage-table"><thead><tr><th>Dataset</th><th>Records</th><th>Rows</th></tr></thead><tbody id="datasetTableBody"></tbody></table></div><div class="protocol-card"><span>FROZEN PROTOCOL</span><h3>One deterministic grouped holdout per target</h3><ol><li>Filter only rows with a known binary target.</li><li>Select a stable fold containing both classes.</li><li>Keep every lineage group entirely in train or test.</li><li>Fit preprocessing on training rows only.</li><li>Score all five models across all 15 combinations.</li></ol><p id="protocolHash"></p></div></div>
+      <div class="split-table-card"><h3>Target-specific sample and split sizes</h3><div class="result-table-scroll"><table class="result-table"><thead><tr><th>Target</th><th>Class 0</th><th>Class 1</th><th>Train rows</th><th>Test rows</th><th>Train groups</th><th>Test groups</th><th>Test fold</th></tr></thead><tbody id="splitTableBody"></tbody></table></div></div>
+    </section>
+
+    <footer class="benchmark-footer"><div><strong>ECG Cascade model benchmark</strong><span>Full aggregate metrics, split manifest and compressed row-level predictions are retained in the generated model_benchmark artifact directory.</span></div><a href="/">Return to feature extraction →</a></footer>
+  </main>
+
+  <div class="benchmark-loading" id="benchmarkLoading"><div class="loader-rings"><i></i><i></i><i></i></div><strong>Loading the completed matrix</strong></div>
+  <script src="/models.js" defer></script>
+</body>
+</html>

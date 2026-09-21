@@ -143,11 +143,17 @@ def build_fusion_ready_table(
         columns={column: f"morph_{column}" for column in morphology.columns}
     )
     morphology["fusion_time_s"] = morphology["morph_window_end_time_s"]
+    morphology["fusion_time_s"] = pd.to_numeric(
+        morphology["fusion_time_s"], errors="coerce"
+    ).astype(float)
     morphology = morphology.sort_values("fusion_time_s", kind="stable")
 
     hrv = hrv_features.copy()
     hrv = hrv.rename(columns={column: f"hrv_{column}" for column in hrv.columns})
     hrv["hrv_measurement_time_s"] = hrv["hrv_end_time_s"]
+    hrv["hrv_measurement_time_s"] = pd.to_numeric(
+        hrv["hrv_measurement_time_s"], errors="coerce"
+    ).astype(float)
     hrv = hrv.sort_values("hrv_measurement_time_s", kind="stable")
 
     if hrv.empty:
